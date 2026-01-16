@@ -16,8 +16,15 @@ require_once ECCO_PATH . 'includes/sharepoint.php';
 require_once ECCO_PATH . 'includes/ajax.php';
 require_once ECCO_PATH . 'includes/admin-settings.php';
 
-add_action('wp_enqueue_scripts', function () {
-    wp_enqueue_style('ecco-intranet', ECCO_URL . 'assets/css/intranet.css');
+/**
+ * Enqueue assets ONLY when intranet is rendered
+ */
+function ecco_enqueue_assets() {
+    wp_enqueue_style(
+        'ecco-intranet',
+        ECCO_URL . 'assets/css/intranet.css'
+    );
+
     wp_enqueue_script(
         'ecco-intranet',
         ECCO_URL . 'assets/js/intranet.js',
@@ -30,17 +37,21 @@ add_action('wp_enqueue_scripts', function () {
         'ajax'  => admin_url('admin-ajax.php'),
         'nonce' => wp_create_nonce('ecco_nonce')
     ]);
-});
+}
 
+/**
+ * Intranet shortcode
+ */
 add_shortcode('ecco_intranet', function () {
+
+    // If not authenticated, show login link (NO redirect here)
     if (!ecco_is_authenticated()) {
-        wp_redirect(ecco_login_url());
-        exit;
+        return '<p><a href="' . esc_url(ecco_login_url()) . '">Sign in with Microsoft</a></p>';
     }
+
+    ecco_enqueue_assets();
 
     ob_start();
     include ECCO_PATH . 'templates/intranet.php';
     return ob_get_clean();
 });
-
-
