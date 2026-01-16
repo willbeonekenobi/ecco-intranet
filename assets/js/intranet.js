@@ -28,7 +28,6 @@ jQuery(document).ready(function ($) {
         `;
     }).join('')
 );
-
         });
 
         section.find('.upload-btn').on('click', function () {
