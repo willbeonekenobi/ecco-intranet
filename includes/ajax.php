@@ -54,8 +54,8 @@ function ecco_ajax_upload() {
     $filename = trim(wp_unslash($file['name']));
 
     $endpoint = $folder_id
-        ? "drives/{$drives[$key]}/items/{$folder_id}:/$filename:/content"
-        : "drives/{$drives[$key]}/root:/$filename:/content";
+        ? "drives/{$drives[$key]}/items/{$folder_id}:/$filename:/content?@name.conflictBehavior=rename"
+        : "drives/{$drives[$key]}/root:/$filename:/content?@name.conflictBehavior=rename";
 
     $res = ecco_graph_put(
         $endpoint,
@@ -88,10 +88,15 @@ function ecco_ajax_upload_session() {
     }
 
     $endpoint = $folder_id
-        ? "drives/{$drives[$key]}/items/{$folder_id}:/$filename:/createUploadSession"
-        : "drives/{$drives[$key]}/root:/$filename:/createUploadSession";
+    ? "drives/{$drives[$key]}/items/{$folder_id}:/$filename:/createUploadSession"
+    : "drives/{$drives[$key]}/root:/$filename:/createUploadSession";
 
-    $session = ecco_graph_post($endpoint, []);
+$session = ecco_graph_post($endpoint, [
+    'item' => [
+        '@microsoft.graph.conflictBehavior' => 'rename',
+        'name' => $filename
+    ]
+]);
 
     if (empty($session['uploadUrl'])) {
         wp_send_json_error('Failed to create upload session');
