@@ -1,13 +1,18 @@
 jQuery(document).ready(function ($) {
 
+    // Track current folder per library
+    const currentFolders = {};
+
     function loadLibrary(section, folderId = null) {
         const library = section.data('library');
+        currentFolders[library] = folderId;
+
         section.find('.doc-list').html('Loading…');
 
         $.post(ECCO.ajax, {
             action: 'ecco_list_docs',
             library: library,
-            folder: folderId
+            folder: folderId || ''
         }, function (res) {
 
             if (!res || !res.value) {
@@ -19,7 +24,11 @@ jQuery(document).ready(function ($) {
 
             // Back button (only when inside a folder)
             if (folderId) {
-                html += `<div class="ecco-back" style="cursor:pointer">⬅ Back</div>`;
+                html += `
+                    <div class="ecco-back" style="cursor:pointer; margin-bottom:6px;">
+                        ⬅ Back
+                    </div>
+                `;
             }
 
             res.value.forEach(item => {
@@ -27,7 +36,7 @@ jQuery(document).ready(function ($) {
                     html += `
                         <div class="ecco-folder"
                              data-id="${item.id}"
-                             style="cursor:pointer">
+                             style="cursor:pointer;">
                             📁 ${item.name}
                         </div>
                     `;
@@ -46,7 +55,7 @@ jQuery(document).ready(function ($) {
         });
     }
 
-    // Initial load
+    // Initial load for each document library
     $('section[data-library]').each(function () {
         loadLibrary($(this));
     });
@@ -64,25 +73,36 @@ jQuery(document).ready(function ($) {
         loadLibrary(section, null);
     });
 
-    // Upload handler (unchanged, but reattached safely)
+    // Upload handler (uploads into current folder)
     $(document).on('click', '.upload-btn', function () {
         const section = $(this).closest('section');
         const library = section.data('library');
         const file = section.find('.upload')[0].files[0];
-        if (!file) return;
+
+        if (!file) {
+            alert('Please choose a file first');
+            return;
+        }
 
         const data = new FormData();
         data.append('action', 'ecco_upload');
         data.append('library', library);
+        data.append('folder', currentFolders[library] || '');
         data.append('file', file);
 
         $.ajax({
             url: ECCO.ajax,
             method: 'POST',
-            data,
+            data: data,
             contentType: false,
             processData: false,
-            success: () => location.reload()
+            success: function (res) {
+                if (!res || !res.success) {
+                    alert('Upload failed');
+                    return;
+                }
+                loadLibrary(section, currentFolders[library] || null);
+            }
         });
     });
 
