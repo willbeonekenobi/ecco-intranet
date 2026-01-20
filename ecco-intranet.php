@@ -55,3 +55,5 @@ add_shortcode('ecco_intranet', function () {
     include ECCO_PATH . 'templates/intranet.php';
     return ob_get_clean();
 });
+require_once ECCO_PATH . 'includes/graph-client.php';
+require_once ECCO_PATH . 'includes/ajax.php';

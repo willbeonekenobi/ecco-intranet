@@ -74,20 +74,26 @@ jQuery(document).ready(function ($) {
     });
 
     // Upload handler (uploads into current folder)
-    $(document).on('click', '.upload-btn', function () {
-        const section = $(this).closest('section');
-        const library = section.data('library');
-        const file = section.find('.upload')[0].files[0];
+$(document).on('click', '.upload-btn', function () {
+    const section = $(this).closest('section');
+    const library = section.data('library');
+    const fileInput = section.find('.upload')[0];
+    const file = fileInput.files[0];
 
-        if (!file) {
-            alert('Please choose a file first');
-            return;
-        }
+    if (!file) {
+        alert('Please choose a file first');
+        return;
+    }
+
+    const folder = currentFolders[library] || '';
+
+    // 🔹 Small files: use existing WordPress upload (unchanged)
+    if (file.size < 512 * 1024) {
 
         const data = new FormData();
         data.append('action', 'ecco_upload');
         data.append('library', library);
-        data.append('folder', currentFolders[library] || '');
+        data.append('folder', folder);
         data.append('file', file);
 
         $.ajax({
@@ -101,9 +107,69 @@ jQuery(document).ready(function ($) {
                     alert('Upload failed');
                     return;
                 }
-                loadLibrary(section, currentFolders[library] || null);
+                loadLibrary(section, folder || null);
             }
         });
+
+        return;
+    }
+
+    // 🔹 Large files: create upload session
+    const progress = $('<div style="height:8px;background:#eee;margin-top:6px;"><div style="height:100%;width:0;background:#2271b1;"></div></div>');
+    section.append(progress);
+    const bar = progress.find('div');
+
+    $.post(ECCO.ajax, {
+        action: 'ecco_upload_session',
+        library: library,
+        folder: folder,
+        filename: file.name,
+        filesize: file.size
+    }, function (res) {
+
+        if (!res || !res.success) {
+            alert('Failed to start upload');
+            progress.remove();
+            return;
+        }
+
+        const uploadUrl = res.data.uploadUrl;
+        const chunkSize = 320 * 1024;
+        let offset = 0;
+
+        function uploadChunk() {
+            const chunk = file.slice(offset, offset + chunkSize);
+
+            $.ajax({
+                url: uploadUrl,
+                method: 'PUT',
+                headers: {
+                    'Content-Range': `bytes ${offset}-${offset + chunk.size - 1}/${file.size}`
+                },
+                data: chunk,
+                processData: false,
+                contentType: false,
+                success: function () {
+                    offset += chunk.size;
+                    bar.css('width', Math.round(offset / file.size * 100) + '%');
+
+                    if (offset < file.size) {
+                        uploadChunk();
+                    } else {
+                        progress.remove();
+                        loadLibrary(section, folder || null);
+                    }
+                },
+                error: function () {
+                    alert('Chunk upload failed');
+                    progress.remove();
+                }
+            });
+        }
+
+        uploadChunk();
     });
+});
+
 
 });
