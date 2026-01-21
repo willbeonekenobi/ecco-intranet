@@ -22,7 +22,6 @@ jQuery(document).ready(function ($) {
 
             let html = '';
 
-            // Back button (only when inside a folder)
             if (folderId) {
                 html += `
                     <div class="ecco-back" style="cursor:pointer; margin-bottom:6px;">
@@ -34,9 +33,7 @@ jQuery(document).ready(function ($) {
             res.value.forEach(item => {
                 if (item.folder) {
                     html += `
-                        <div class="ecco-folder"
-                             data-id="${item.id}"
-                             style="cursor:pointer;">
+                        <div class="ecco-folder" data-id="${item.id}" style="cursor:pointer;">
                             📁 ${item.name}
                         </div>
                     `;
@@ -55,121 +52,196 @@ jQuery(document).ready(function ($) {
         });
     }
 
-    // Initial load for each document library
+    // Initial load
     $('section[data-library]').each(function () {
         loadLibrary($(this));
     });
 
-    // Folder click
+    // Folder navigation
     $(document).on('click', '.ecco-folder', function () {
-        const section = $(this).closest('section');
-        const folderId = $(this).data('id');
-        loadLibrary(section, folderId);
+        loadLibrary($(this).closest('section'), $(this).data('id'));
     });
 
-    // Back click
     $(document).on('click', '.ecco-back', function () {
-        const section = $(this).closest('section');
-        loadLibrary(section, null);
+        loadLibrary($(this).closest('section'), null);
     });
 
-    // Upload handler (uploads into current folder)
-$(document).on('click', '.upload-btn', function () {
-    const section = $(this).closest('section');
-    const library = section.data('library');
-    const fileInput = section.find('.upload')[0];
-    const file = fileInput.files[0];
+    /**
+     * Start upload AFTER conflict decision
+     */
+    function startUpload(section, file, conflict) {
 
-    if (!file) {
-        alert('Please choose a file first');
-        return;
-    }
+        const library = section.data('library');
+        const folder = currentFolders[library] || '';
 
-    const folder = currentFolders[library] || '';
+        // Small files
+        if (file.size < 512 * 1024) {
 
-    // 🔹 Small files: use existing WordPress upload (unchanged)
-    if (file.size < 512 * 1024) {
+            const data = new FormData();
+            data.append('action', 'ecco_upload');
+            data.append('library', library);
+            data.append('folder', folder);
+            data.append('file', file);
+            data.append('conflict', conflict);
 
-        const data = new FormData();
-        data.append('action', 'ecco_upload');
-        data.append('library', library);
-        data.append('folder', folder);
-        data.append('file', file);
-
-        $.ajax({
-            url: ECCO.ajax,
-            method: 'POST',
-            data: data,
-            contentType: false,
-            processData: false,
-            success: function (res) {
-                if (!res || !res.success) {
-                    alert('Upload failed');
-                    return;
+            $.ajax({
+                url: ECCO.ajax,
+                method: 'POST',
+                data,
+                contentType: false,
+                processData: false,
+                success: function (res) {
+                    if (!res || !res.success) {
+                        alert('Upload failed');
+                        return;
+                    }
+                    loadLibrary(section, folder || null);
                 }
-                loadLibrary(section, folder || null);
-            }
-        });
+            });
 
-        return;
-    }
-
-    // 🔹 Large files: create upload session
-    const progress = $('<div style="height:8px;background:#eee;margin-top:6px;"><div style="height:100%;width:0;background:#2271b1;"></div></div>');
-    section.append(progress);
-    const bar = progress.find('div');
-
-    $.post(ECCO.ajax, {
-        action: 'ecco_upload_session',
-        library: library,
-        folder: folder,
-        filename: file.name,
-        filesize: file.size
-    }, function (res) {
-
-        if (!res || !res.success) {
-            alert('Failed to start upload');
-            progress.remove();
             return;
         }
 
-        const uploadUrl = res.data.uploadUrl;
-        const chunkSize = 320 * 1024;
-        let offset = 0;
+        // Large files (chunked)
+        const progress = $(`
+            <div style="height:8px;background:#eee;margin-top:6px;">
+                <div style="height:100%;width:0;background:#2271b1;"></div>
+            </div>
+        `);
 
-        function uploadChunk() {
-            const chunk = file.slice(offset, offset + chunkSize);
+        section.append(progress);
+        const bar = progress.find('div');
 
-            $.ajax({
-                url: uploadUrl,
-                method: 'PUT',
-                headers: {
-                    'Content-Range': `bytes ${offset}-${offset + chunk.size - 1}/${file.size}`
-                },
-                data: chunk,
-                processData: false,
-                contentType: false,
-                success: function () {
-                    offset += chunk.size;
-                    bar.css('width', Math.round(offset / file.size * 100) + '%');
+        $.post(ECCO.ajax, {
+            action: 'ecco_upload_session',
+            library: library,
+            folder: folder,
+            filename: file.name,
+            filesize: file.size,
+            conflict: conflict
+        }, function (res) {
 
-                    if (offset < file.size) {
-                        uploadChunk();
-                    } else {
+            if (!res || !res.success) {
+                alert('Failed to start upload');
+                progress.remove();
+                return;
+            }
+
+            const uploadUrl = res.data.uploadUrl;
+            const chunkSize = 320 * 1024;
+            let offset = 0;
+
+            function uploadChunk() {
+                const chunk = file.slice(offset, offset + chunkSize);
+
+                $.ajax({
+                    url: uploadUrl,
+                    method: 'PUT',
+                    headers: {
+                        'Content-Range': `bytes ${offset}-${offset + chunk.size - 1}/${file.size}`,
+                        'Content-Type': 'application/octet-stream'
+                    },
+                    data: chunk,
+                    processData: false,
+                    contentType: false,
+                    success: function () {
+                        offset += chunk.size;
+                        bar.css('width', Math.round(offset / file.size * 100) + '%');
+
+                        if (offset < file.size) {
+                            uploadChunk();
+                        } else {
+                            progress.remove();
+                            loadLibrary(section, folder || null);
+                        }
+                    },
+                    error: function () {
+                        alert('Chunk upload failed');
                         progress.remove();
-                        loadLibrary(section, folder || null);
                     }
-                },
-                error: function () {
-                    alert('Chunk upload failed');
-                    progress.remove();
-                }
-            });
+                });
+            }
+
+            uploadChunk();
+        });
+    }
+
+    /**
+     * Upload button click
+     */
+    $(document).on('click', '.upload-btn', function () {
+
+        const section = $(this).closest('section');
+        const fileInput = section.find('.upload')[0];
+        const file = fileInput.files[0];
+
+        if (!file) {
+            alert('Please choose a file first');
+            return;
         }
 
-        uploadChunk();
+        const library = section.data('library');
+        const folder = currentFolders[library] || '';
+        const conflict = section.find('.ecco-conflict').val();
+
+        // CANCEL mode
+        if (conflict === 'cancel') {
+
+            $.post(ECCO.ajax, {
+                action: 'ecco_file_exists',
+                library: library,
+                folder: folder,
+                filename: file.name
+            }, function (res) {
+
+                if (!res || !res.success) {
+                    alert('Unable to verify file existence');
+                    return;
+                }
+
+                if (res.data.exists) {
+                    alert('A file with this name already exists. Upload cancelled.');
+                    return;
+                }
+
+                startUpload(section, file, 'rename');
+            });
+
+            return;
+        }
+
+        // OVERWRITE confirmation (FIXED)
+        if (conflict === 'overwrite') {
+
+            $.post(ECCO.ajax, {
+                action: 'ecco_file_exists',
+                library: library,
+                folder: folder,
+                filename: file.name
+            }, function (res) {
+
+                if (!res || !res.success) {
+                    alert('Unable to verify file existence');
+                    return;
+                }
+
+                if (res.data.exists) {
+                    const ok = confirm(
+                        `A file named "${file.name}" already exists.\n\nDo you want to overwrite it?`
+                    );
+                    if (!ok) return;
+                }
+
+                startUpload(section, file, 'overwrite');
+            });
+
+            return;
+        }
+
+        // RENAME (default)
+        startUpload(section, file, 'rename');
     });
-});
-
 
 });
+
+console.log('File exists?', res.data.exists);

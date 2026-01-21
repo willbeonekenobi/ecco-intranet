@@ -54,8 +54,8 @@ function ecco_ajax_upload() {
     $filename = trim(wp_unslash($file['name']));
 
     $endpoint = $folder_id
-        ? "drives/{$drives[$key]}/items/{$folder_id}:/$filename:/content?@name.conflictBehavior=rename"
-        : "drives/{$drives[$key]}/root:/$filename:/content?@name.conflictBehavior=rename";
+        ? "drives/{$drives[$key]}/items/{$folder_id}:/$filename:/content?@name.conflictBehavior={$conflict}"
+        : "drives/{$drives[$key]}/root:/$filename:/content?@name.conflictBehavior={$conflict}";
 
     $res = ecco_graph_put(
         $endpoint,
@@ -65,7 +65,11 @@ function ecco_ajax_upload() {
 
     wp_send_json_success();
 }
+$conflict = $_POST['conflict'] ?? 'rename';
 
+if (!in_array($conflict, ['rename', 'replace', 'fail'], true)) {
+    $conflict = 'rename';
+}
 /**
  * Large file upload session
  */
@@ -86,14 +90,18 @@ function ecco_ajax_upload_session() {
     if (!isset($drives[$key])) {
         wp_send_json_error('Invalid library');
     }
+$conflict = $_POST['conflict'] ?? 'rename';
 
+if (!in_array($conflict, ['rename', 'replace', 'fail'], true)) {
+    $conflict = 'rename';
+}
     $endpoint = $folder_id
     ? "drives/{$drives[$key]}/items/{$folder_id}:/$filename:/createUploadSession"
     : "drives/{$drives[$key]}/root:/$filename:/createUploadSession";
 
 $session = ecco_graph_post($endpoint, [
     'item' => [
-        '@microsoft.graph.conflictBehavior' => 'rename',
+        '@microsoft.graph.conflictBehavior' => $conflict,
         'name' => $filename
     ]
 ]);
@@ -105,4 +113,39 @@ $session = ecco_graph_post($endpoint, [
     wp_send_json_success([
         'uploadUrl' => $session['uploadUrl']
     ]);
+}
+/**
+ * Check if a file exists in a folder
+ */
+add_action('wp_ajax_ecco_file_exists', 'ecco_ajax_file_exists');
+
+function ecco_ajax_file_exists() {
+
+    if (!isset($_POST['library'], $_POST['filename'])) {
+        wp_send_json_error('Missing parameters');
+    }
+
+    $key      = sanitize_text_field($_POST['library']);
+    $filename = trim(wp_unslash($_POST['filename']));
+    $folder   = !empty($_POST['folder']) ? sanitize_text_field($_POST['folder']) : null;
+
+    $drives = ecco_get_drive_map();
+
+    if (!isset($drives[$key])) {
+        wp_send_json_error('Invalid library');
+    }
+
+    // 🔹 Correct Graph endpoint
+    $endpoint = $folder
+        ? "drives/{$drives[$key]}/items/{$folder}:/$filename"
+        : "drives/{$drives[$key]}/root:/$filename";
+
+    $response = ecco_graph_get($endpoint);
+
+    // File exists if Graph returns an ID
+    if (!empty($response['id'])) {
+        wp_send_json_success(['exists' => true]);
+    }
+
+    wp_send_json_success(['exists' => false]);
 }
