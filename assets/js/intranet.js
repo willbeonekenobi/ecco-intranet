@@ -1,11 +1,26 @@
 jQuery(document).ready(function ($) {
 
-    // Track current folder per library
-    const currentFolders = {};
+    // Track folder path per library
+    const folderPaths = {};
+
+    function renderBreadcrumbs(library) {
+        let html = `<div class="ecco-breadcrumbs" style="margin-bottom:6px;">`;
+        html += `<span class="crumb" data-index="-1" style="cursor:pointer;">Home</span>`;
+
+        (folderPaths[library] || []).forEach((folder, index) => {
+            html += ` › <span class="crumb" data-index="${index}" style="cursor:pointer;">${folder.name}</span>`;
+        });
+
+        html += `</div>`;
+        return html;
+    }
 
     function loadLibrary(section, folderId = null) {
         const library = section.data('library');
-        currentFolders[library] = folderId;
+
+        if (!folderPaths[library]) {
+            folderPaths[library] = [];
+        }
 
         section.find('.doc-list').html('Loading…');
 
@@ -20,20 +35,15 @@ jQuery(document).ready(function ($) {
                 return;
             }
 
-            let html = '';
-
-            if (folderId) {
-                html += `
-                    <div class="ecco-back" style="cursor:pointer; margin-bottom:6px;">
-                        ⬅ Back
-                    </div>
-                `;
-            }
+            let html = renderBreadcrumbs(library);
 
             res.value.forEach(item => {
                 if (item.folder) {
                     html += `
-                        <div class="ecco-folder" data-id="${item.id}" style="cursor:pointer;">
+                        <div class="ecco-folder"
+                             data-id="${item.id}"
+                             data-name="${item.name}"
+                             style="cursor:pointer;">
                             📁 ${item.name}
                         </div>
                     `;
@@ -59,11 +69,35 @@ jQuery(document).ready(function ($) {
 
     // Folder navigation
     $(document).on('click', '.ecco-folder', function () {
-        loadLibrary($(this).closest('section'), $(this).data('id'));
+        const section = $(this).closest('section');
+        const library = section.data('library');
+
+        if (!folderPaths[library]) {
+            folderPaths[library] = [];
+        }
+
+        folderPaths[library].push({
+            id: $(this).data('id'),
+            name: $(this).data('name')
+        });
+
+        loadLibrary(section, $(this).data('id'));
     });
 
-    $(document).on('click', '.ecco-back', function () {
-        loadLibrary($(this).closest('section'), null);
+    // Breadcrumb navigation
+    $(document).on('click', '.crumb', function () {
+        const section = $(this).closest('section');
+        const library = section.data('library');
+        const index = parseInt($(this).data('index'), 10);
+
+        if (index === -1) {
+            folderPaths[library] = [];
+            loadLibrary(section, null);
+            return;
+        }
+
+        folderPaths[library] = folderPaths[library].slice(0, index + 1);
+        loadLibrary(section, folderPaths[library][index].id);
     });
 
     /**
@@ -72,7 +106,7 @@ jQuery(document).ready(function ($) {
     function startUpload(section, file, conflict) {
 
         const library = section.data('library');
-        const folder = currentFolders[library] || '';
+        const folder = folderPaths[library]?.slice(-1)[0]?.id || '';
 
         // Small files
         if (file.size < 512 * 1024) {
@@ -104,13 +138,14 @@ jQuery(document).ready(function ($) {
 
         // Large files (chunked)
         const progress = $(`
-            <div style="height:8px;background:#eee;margin-top:6px;">
-                <div style="height:100%;width:0;background:#2271b1;"></div>
-            </div>
-        `);
+        <div class="ecco-progress" style="height:8px;background:#eee;margin:6px 0;">
+        <div style="height:100%;width:0;background:#2271b1;"></div>
+        </div>
+`       );
 
-        section.append(progress);
+        section.find('.doc-list').before(progress);
         const bar = progress.find('div');
+
 
         $.post(ECCO.ajax, {
             action: 'ecco_upload_session',
@@ -181,79 +216,15 @@ jQuery(document).ready(function ($) {
         }
 
         const library = section.data('library');
-        const folder = currentFolders[library] || '';
+        const folder = folderPaths[library]?.slice(-1)[0]?.id || '';
 
         let conflict = section.find('.ecco-conflict').val();
 
-        // Normalise UI values → Graph values
         if (conflict === 'overwrite') conflict = 'replace';
         if (conflict === 'cancel') conflict = 'fail';
         if (!conflict) conflict = 'rename';
 
-        // CANCEL IF EXISTS
-        if (conflict === 'fail') {
-
-            $.post(ECCO.ajax, {
-                action: 'ecco_file_exists',
-                library,
-                folder,
-                filename: file.name
-            }, function (res) {
-
-                if (!res || !res.success) {
-                    alert('Unable to verify file existence');
-                    return;
-                }
-
-                if (res.data.exists) {
-                    alert('A file with this name already exists. Upload cancelled.');
-                    return;
-                }
-
-                startUpload(section, file, 'rename');
-            });
-
-            return;
-        }
-
-        // OVERWRITE WITH CONFIRMATION
-        if (conflict === 'replace') {
-
-            $.post(ECCO.ajax, {
-                action: 'ecco_file_exists',
-                library,
-                folder,
-                filename: file.name
-            }, function (res) {
-
-                if (!res || !res.success) {
-                    alert('Unable to verify file existence');
-                    return;
-                }
-
-                if (res.data.exists) {
-
-                    const sizeMB = (res.data.size / (1024 * 1024)).toFixed(2);
-                    const modified = res.data.lastModified
-                        ? new Date(res.data.lastModified).toLocaleString()
-                        : 'Unknown';
-
-                    if (!confirm(
-                        `A file named "${file.name}" already exists.\n\n` +
-                        `Size: ${sizeMB} MB\n` +
-                        `Last modified: ${modified}\n\n` +
-                        `Do you want to overwrite it?`
-                    )) return;
-                }
-
-                startUpload(section, file, 'replace');
-            });
-
-            return;
-        }
-
-        // RENAME (default)
-        startUpload(section, file, 'rename');
+        startUpload(section, file, conflict);
     });
 
 });
