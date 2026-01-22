@@ -11,7 +11,7 @@ jQuery(document).ready(function ($) {
 
         $.post(ECCO.ajax, {
             action: 'ecco_list_docs',
-            library: library,
+            library,
             folder: folderId || ''
         }, function (res) {
 
@@ -90,7 +90,7 @@ jQuery(document).ready(function ($) {
                 data,
                 contentType: false,
                 processData: false,
-                success: function (res) {
+                success(res) {
                     if (!res || !res.success) {
                         alert('Upload failed');
                         return;
@@ -114,11 +114,11 @@ jQuery(document).ready(function ($) {
 
         $.post(ECCO.ajax, {
             action: 'ecco_upload_session',
-            library: library,
-            folder: folder,
+            library,
+            folder,
             filename: file.name,
             filesize: file.size,
-            conflict: conflict
+            conflict
         }, function (res) {
 
             if (!res || !res.success) {
@@ -144,9 +144,9 @@ jQuery(document).ready(function ($) {
                     data: chunk,
                     processData: false,
                     contentType: false,
-                    success: function () {
+                    success() {
                         offset += chunk.size;
-                        bar.css('width', Math.round(offset / file.size * 100) + '%');
+                        bar.css('width', Math.round((offset / file.size) * 100) + '%');
 
                         if (offset < file.size) {
                             uploadChunk();
@@ -155,7 +155,7 @@ jQuery(document).ready(function ($) {
                             loadLibrary(section, folder || null);
                         }
                     },
-                    error: function () {
+                    error() {
                         alert('Chunk upload failed');
                         progress.remove();
                     }
@@ -182,15 +182,21 @@ jQuery(document).ready(function ($) {
 
         const library = section.data('library');
         const folder = currentFolders[library] || '';
-        const conflict = section.find('.ecco-conflict').val();
 
-        // CANCEL mode
-        if (conflict === 'cancel') {
+        let conflict = section.find('.ecco-conflict').val();
+
+        // Normalise UI values → Graph values
+        if (conflict === 'overwrite') conflict = 'replace';
+        if (conflict === 'cancel') conflict = 'fail';
+        if (!conflict) conflict = 'rename';
+
+        // CANCEL IF EXISTS
+        if (conflict === 'fail') {
 
             $.post(ECCO.ajax, {
                 action: 'ecco_file_exists',
-                library: library,
-                folder: folder,
+                library,
+                folder,
                 filename: file.name
             }, function (res) {
 
@@ -210,13 +216,13 @@ jQuery(document).ready(function ($) {
             return;
         }
 
-        // OVERWRITE confirmation (FIXED)
-        if (conflict === 'overwrite') {
+        // OVERWRITE WITH CONFIRMATION
+        if (conflict === 'replace') {
 
             $.post(ECCO.ajax, {
                 action: 'ecco_file_exists',
-                library: library,
-                folder: folder,
+                library,
+                folder,
                 filename: file.name
             }, function (res) {
 
@@ -226,13 +232,21 @@ jQuery(document).ready(function ($) {
                 }
 
                 if (res.data.exists) {
-                    const ok = confirm(
-                        `A file named "${file.name}" already exists.\n\nDo you want to overwrite it?`
-                    );
-                    if (!ok) return;
+
+                    const sizeMB = (res.data.size / (1024 * 1024)).toFixed(2);
+                    const modified = res.data.lastModified
+                        ? new Date(res.data.lastModified).toLocaleString()
+                        : 'Unknown';
+
+                    if (!confirm(
+                        `A file named "${file.name}" already exists.\n\n` +
+                        `Size: ${sizeMB} MB\n` +
+                        `Last modified: ${modified}\n\n` +
+                        `Do you want to overwrite it?`
+                    )) return;
                 }
 
-                startUpload(section, file, 'overwrite');
+                startUpload(section, file, 'replace');
             });
 
             return;
@@ -243,5 +257,3 @@ jQuery(document).ready(function ($) {
     });
 
 });
-
-console.log('File exists?', res.data.exists);
