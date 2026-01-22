@@ -15,6 +15,9 @@ require_once ECCO_PATH . 'includes/graph-client.php';
 require_once ECCO_PATH . 'includes/sharepoint.php';
 require_once ECCO_PATH . 'includes/ajax.php';
 require_once ECCO_PATH . 'includes/admin-settings.php';
+require_once ECCO_PATH . 'includes/shortcodes.php';
+require_once ECCO_PATH . 'includes/shortcodes-dashboard.php';
+
 
 /**
  * Enqueue assets ONLY when intranet is rendered
@@ -55,5 +58,27 @@ add_shortcode('ecco_intranet', function () {
     include ECCO_PATH . 'templates/intranet.php';
     return ob_get_clean();
 });
-require_once ECCO_PATH . 'includes/graph-client.php';
-require_once ECCO_PATH . 'includes/ajax.php';
+
+/**
+ * Prevent unauthenticated access to library pages
+ */
+add_action('template_redirect', function () {
+
+    if (!is_page()) {
+        return;
+    }
+
+    $post = get_post();
+    if (!$post) {
+        return;
+    }
+
+    // Protect pages that render SharePoint libraries
+    if (has_shortcode($post->post_content, 'ecco_library')) {
+
+        if (!ecco_is_authenticated()) {
+            wp_redirect(site_url('/intranet'));
+            exit;
+        }
+    }
+});

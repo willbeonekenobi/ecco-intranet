@@ -142,3 +142,5 @@ add_action('wp_ajax_ecco_file_exists', function () {
 
     wp_send_json_success(['exists' => false]);
 });
+
+
