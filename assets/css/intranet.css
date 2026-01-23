@@ -33,3 +33,43 @@
     font-weight: 600;
     text-align: center;
 }
+/* Upload progress bar */
+.ecco-progress {
+    width: 100%;
+    height: 8px;
+    background: #e5e5e5;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.08);
+}
+
+.ecco-progress > div {
+    height: 100%;
+    width: 0;
+    background: #2271b1; /* WordPress admin blue */
+    transition: width 0.2s ease;
+}
+
+/* Breadcrumbs */
+.ecco-breadcrumbs {
+    font-size: 13px;
+    margin-bottom: 8px;
+    color: #555;
+}
+
+.ecco-breadcrumbs .crumb {
+    color: #2271b1;
+}
+
+.ecco-breadcrumbs .crumb:hover {
+    text-decoration: underline;
+}
+
+/* Folder rows */
+.ecco-folder {
+    padding: 4px 0;
+}
+
+.ecco-file {
+    padding: 2px 0;
+}

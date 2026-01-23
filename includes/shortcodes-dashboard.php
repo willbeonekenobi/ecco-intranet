@@ -15,7 +15,7 @@ add_shortcode('ecco_dashboard', function () {
     $libraries = [
         'daily-journals'      => 'Daily Journals',
         'hr-documents'        => 'HR Documents',
-        'policies'            => 'Policies & Procedures',
+        'policies-and-procedures'            => 'Policies and Procedures',
         'wiring-diagrams'     => 'Wiring Diagrams',
         'job-cards'           => 'Job Cards',
         'maintenance-reports' => 'Maintenance Reports',
