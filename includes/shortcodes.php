@@ -33,8 +33,8 @@ add_shortcode('ecco_library', function ($atts) {
             <input type="file" class="upload" />
 
             <select class="ecco-conflict">
-                <option value="rename">Rename if exists</option>
                 <option value="overwrite">Overwrite existing</option>
+                <option value="rename">Rename if exists</option>
                 <option value="cancel">Cancel if exists</option>
             </select>
 

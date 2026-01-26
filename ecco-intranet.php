@@ -17,6 +17,7 @@ require_once ECCO_PATH . 'includes/ajax.php';
 require_once ECCO_PATH . 'includes/admin-settings.php';
 require_once ECCO_PATH . 'includes/shortcodes.php';
 require_once ECCO_PATH . 'includes/shortcodes-dashboard.php';
+require_once ECCO_PATH . 'includes/leave-shortcode.php';
 
 
 /**

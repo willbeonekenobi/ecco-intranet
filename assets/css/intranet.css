@@ -73,3 +73,31 @@
 .ecco-file {
     padding: 2px 0;
 }
+.ecco-leave {
+    max-width: 600px;
+}
+
+.ecco-leave label {
+    display: block;
+    margin-bottom: 12px;
+}
+
+.ecco-leave textarea {
+    width: 100%;
+    min-height: 80px;
+}
+
+.ecco-row {
+    display: flex;
+    gap: 12px;
+}
+
+.ecco-row label {
+    flex: 1;
+}
+
+.ecco-days {
+    margin: 6px 0 12px;
+    font-size: 14px;
+    opacity: 0.8;
+}
