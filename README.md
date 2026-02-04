@@ -19,7 +19,7 @@ The codebase is structured so that additional providers/targets (e.g., SharePoin
 🛠 Installation
 From GitHub
 
-1. PLease clone the repo:
+Download the latest release or clone the repo:
 
 git clone https://github.com/willbeonekenobi/ecco-intranet.git
 
