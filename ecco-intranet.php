@@ -12,6 +12,7 @@ define('ECCO_URL', plugin_dir_url(__FILE__));
 
 require_once ECCO_PATH . 'includes/auth-microsoft.php';
 require_once ECCO_PATH . 'includes/graph-client.php';
+require_once ECCO_PATH . 'includes/graph-token-store.php';
 require_once ECCO_PATH . 'includes/sharepoint.php';
 require_once ECCO_PATH . 'includes/ajax.php';
 require_once ECCO_PATH . 'includes/admin-settings.php';
@@ -19,6 +20,7 @@ require_once ECCO_PATH . 'includes/shortcodes.php';
 require_once ECCO_PATH . 'includes/shortcodes-dashboard.php';
 require_once ECCO_PATH . 'includes/leave-shortcode.php';
 require_once ECCO_PATH . 'includes/leave/leave-loader.php';
+require_once ECCO_PATH . 'includes/leave/leave-approval-shortcode.php';
 
 
 /**

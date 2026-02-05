@@ -24,19 +24,43 @@ function ecco_handle_leave_submission() {
         $wpdb->prefix . 'ecco_leave_requests',
         [
             'user_id'       => get_current_user_id(),
-            'leave_type'    => sanitize_text_field($_POST['leave_type']),
-            'start_date'    => sanitize_text_field($_POST['start_date']),
-            'end_date'      => sanitize_text_field($_POST['end_date']),
-            'reason'        => sanitize_textarea_field($_POST['reason']),
+            'leave_type'    => sanitize_text_field($_POST['leave_type'] ?? ''),
+            'start_date'    => sanitize_text_field($_POST['start_date'] ?? ''),
+            'end_date'      => sanitize_text_field($_POST['end_date'] ?? ''),
+            'reason'        => sanitize_textarea_field($_POST['reason'] ?? ''),
             'manager_email' => $manager['mail'] ?? null,
+            'status'        => 'pending',
         ]
     );
 
+    $request_id = $wpdb->insert_id;
+
+    // Build approval URL (frontend page with shortcode)
+    $approval_url = add_query_arg(
+        ['request_id' => $request_id],
+        site_url('/leave-approval/')
+    );
+
+    // Email requester
+    $current_user = wp_get_current_user();
+    if (!empty($current_user->user_email)) {
+        wp_mail(
+            $current_user->user_email,
+            'Your leave request was submitted',
+            "Your leave request has been submitted and is awaiting approval.\n\n" .
+            "Dates: {$_POST['start_date']} → {$_POST['end_date']}\n\n" .
+            "You will be notified once it has been approved or rejected."
+        );
+    }
+
+    // Email manager
     if (!empty($manager['mail'])) {
         wp_mail(
             $manager['mail'],
-            'New Leave Request',
-            'A new leave request has been submitted and requires your approval.'
+            'Leave request awaiting your approval',
+            "A new leave request requires your approval.\n\n" .
+            "Dates: {$_POST['start_date']} → {$_POST['end_date']}\n\n" .
+            "Review and action it here:\n{$approval_url}"
         );
     }
 
@@ -64,6 +88,11 @@ function ecco_handle_leave_action($status) {
 
     check_admin_referer('ecco_leave_action_' . $id);
 
+    $comment = sanitize_textarea_field($_POST['manager_comment'] ?? '');
+    if (empty($comment)) {
+        wp_die('Manager comment is required.');
+    }
+
     global $wpdb;
 
     $request = $wpdb->get_row(
@@ -74,65 +103,82 @@ function ecco_handle_leave_action($status) {
         wp_die('Request not found');
     }
 
+    // Permission check (manager-only, supports self-managed / no-manager edge case)
     if (!function_exists('ecco_current_user_can_approve_leave')) {
-    function ecco_current_user_can_approve_leave($request) {
-        if (!function_exists('ecco_get_graph_user_profile')) {
-            return false;
-        }
-
-        $me = ecco_get_graph_user_profile();
-        $my_email = strtolower(trim($me['mail'] ?? ''));
-
-        if (empty($my_email)) {
-            return false;
-        }
-
-        // Case 1: Manager email exists → must match exactly
-        if (!empty($request->manager_email)) {
-            return strtolower($request->manager_email) === $my_email;
-        }
-
-        // Case 2: No manager set → allow ONLY if self-managed (same person)
-        // We confirm self-managed by checking Graph manager equals user
-        if (function_exists('ecco_get_graph_manager_profile')) {
-            $manager = ecco_get_graph_manager_profile();
-
-            if (!$manager || empty($manager['mail'])) {
-                // No manager in Entra → allow self-approval only
-                return true;
+        function ecco_current_user_can_approve_leave($request) {
+            if (!function_exists('ecco_get_graph_user_profile')) {
+                return false;
             }
 
-            return strtolower($manager['mail']) === $my_email;
-        }
+            $me = ecco_get_graph_user_profile();
+            $my_email = strtolower(trim($me['mail'] ?? ''));
 
-        return false;
+            if (empty($my_email)) {
+                return false;
+            }
+
+            // Case 1: Manager email exists → must match
+            if (!empty($request->manager_email)) {
+                return strtolower($request->manager_email) === $my_email;
+            }
+
+            // Case 2: No manager set in request → allow self-managed only
+            if (function_exists('ecco_get_graph_manager_profile')) {
+                $manager = ecco_get_graph_manager_profile();
+
+                if (!$manager || empty($manager['mail'])) {
+                    return true; // no manager in Entra → self-managed
+                }
+
+                return strtolower($manager['mail']) === $my_email;
+            }
+
+            return false;
+        }
     }
-}
+
+    if (!ecco_current_user_can_approve_leave($request)) {
+        wp_die('You are not allowed to approve or reject this request.');
+    }
 
     $old_status = $request->status;
 
-$wpdb->update(
-    $wpdb->prefix . 'ecco_leave_requests',
-    ['status' => $status],
-    ['id' => $id]
-);
+    // Update leave status
+    $wpdb->update(
+        $wpdb->prefix . 'ecco_leave_requests',
+        ['status' => $status],
+        ['id' => $id]
+    );
 
-// Audit log
-$me = function_exists('ecco_get_graph_user_profile') ? ecco_get_graph_user_profile() : [];
+    // Audit log
+    $me = function_exists('ecco_get_graph_user_profile') ? ecco_get_graph_user_profile() : [];
 
-$wpdb->insert(
-    $wpdb->prefix . 'ecco_leave_audit',
-    [
-        'leave_request_id' => $id,
-        'action'           => $status,
-        'actor_user_id'    => get_current_user_id(),
-        'actor_email'      => sanitize_email($me['mail'] ?? ''),
-        'old_status'       => $old_status,
-        'new_status'       => $status,
-        'ip_address'       => $_SERVER['REMOTE_ADDR'] ?? null,
-        'user_agent'       => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 500),
-    ]
-);
+    $wpdb->insert(
+        $wpdb->prefix . 'ecco_leave_audit',
+        [
+            'leave_request_id' => $id,
+            'action'           => $status,
+            'actor_user_id'    => get_current_user_id(),
+            'actor_email'      => sanitize_email($me['mail'] ?? ''),
+            'old_status'       => $old_status,
+            'new_status'       => $status,
+            'comment'          => $comment,
+            'ip_address'       => $_SERVER['REMOTE_ADDR'] ?? null,
+            'user_agent'       => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 500),
+        ]
+    );
+
+    // Email requester on approval/rejection
+    $requester = get_userdata($request->user_id);
+    if ($requester && !empty($requester->user_email)) {
+        wp_mail(
+            $requester->user_email,
+            "Your leave request was {$status}",
+            "Your leave request has been {$status}.\n\n" .
+            "Dates: {$request->start_date} → {$request->end_date}\n\n" .
+            "Manager comment:\n{$comment}"
+        );
+    }
 
     wp_redirect(wp_get_referer());
     exit;
