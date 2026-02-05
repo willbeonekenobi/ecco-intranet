@@ -21,6 +21,7 @@ require_once ECCO_PATH . 'includes/shortcodes-dashboard.php';
 require_once ECCO_PATH . 'includes/leave-shortcode.php';
 require_once ECCO_PATH . 'includes/leave/leave-loader.php';
 require_once ECCO_PATH . 'includes/leave/leave-approval-shortcode.php';
+require_once ECCO_PATH . 'includes/leave/leave-dashboard-shortcode.php';
 
 
 /**

@@ -38,7 +38,7 @@ function ecco_handle_leave_submission() {
     // Build approval URL (frontend page with shortcode)
     $approval_url = add_query_arg(
         ['request_id' => $request_id],
-        site_url('/leave-approval/')
+        site_url('/leave-dashboard/')
     );
 
     // Email requester
