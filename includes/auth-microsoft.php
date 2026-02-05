@@ -14,7 +14,7 @@ function ecco_login_url() {
         'response_type' => 'code',
         'redirect_uri'  => $redirect,
         'scope'         => 'openid profile email offline_access User.Read Sites.ReadWrite.All Files.ReadWrite.All',
-        'prompt'        => 'select_account',
+        'prompt'        => 'consent',
     ]);
 }
 
@@ -33,6 +33,14 @@ function ecco_handle_graph_callback() {
         wp_die('No auth code returned from Microsoft');
     }
 
+    // Prevent double redemption (browser refresh, duplicate ajax calls)
+    if (get_transient('ecco_oauth_processing')) {
+        wp_redirect(site_url('/intranet/?connected=1'));
+        exit;
+    }
+
+    set_transient('ecco_oauth_processing', 1, 30); // 30 seconds lock
+
     $response = wp_remote_post(
         "https://login.microsoftonline.com/" . get_option('ecco_tenant_id') . "/oauth2/v2.0/token",
         [
@@ -50,28 +58,35 @@ function ecco_handle_graph_callback() {
     $body = json_decode(wp_remote_retrieve_body($response), true);
 
     if (empty($body['access_token'])) {
+
+        // Handle double-redeem gracefully
+        if (!empty($body['error']) && $body['error'] === 'invalid_grant') {
+            delete_transient('ecco_oauth_processing');
+            wp_redirect(site_url('/intranet/?connected=1'));
+            exit;
+        }
+
+        delete_transient('ecco_oauth_processing');
         error_log('ECCO OAuth failed: ' . print_r($body, true));
         wp_die('Microsoft login failed');
     }
 
-    // 🔐 Temporarily set token for profile lookup
+    // Resolve profile BEFORE login
     $_COOKIE['ecco_token'] = $body['access_token'];
-
     $me = ecco_graph_get('me');
 
-    if (empty($me['mail']) && empty($me['userPrincipalName'])) {
-        wp_die('Unable to resolve Microsoft user profile');
+    if (!$me || empty($me['id'])) {
+        delete_transient('ecco_oauth_processing');
+        wp_die('Microsoft profile lookup failed');
     }
 
     $email = strtolower($me['mail'] ?? $me['userPrincipalName']);
     $name  = $me['displayName'] ?? $email;
 
-    // 👤 Create or login WordPress user
     $user = get_user_by('email', $email);
 
     if (!$user) {
         $username = sanitize_user(current(explode('@', $email)));
-
         if (username_exists($username)) {
             $username .= '_' . wp_generate_password(4, false);
         }
@@ -81,19 +96,19 @@ function ecco_handle_graph_callback() {
             'ID'           => $user_id,
             'display_name' => $name,
         ]);
-
         $user = get_user_by('id', $user_id);
     }
 
     wp_set_current_user($user->ID);
     wp_set_auth_cookie($user->ID, true);
 
-    // 💾 Persist Graph token
     ecco_graph_store_token($user->ID, [
         'access_token'  => $body['access_token'],
         'refresh_token' => $body['refresh_token'] ?? null,
         'expires_in'    => $body['expires_in'] ?? 3600,
     ]);
+
+    delete_transient('ecco_oauth_processing');
 
     wp_redirect(site_url('/intranet/?connected=1'));
     exit;
