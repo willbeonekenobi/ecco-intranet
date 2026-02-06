@@ -2,7 +2,6 @@
 if (!defined('ABSPATH')) exit;
 
 require_once __DIR__ . '/graph-token-store.php';
-require_once __DIR__ . '/graph-client.php';
 
 function ecco_login_url() {
     $tenant   = get_option('ecco_tenant_id');
@@ -33,13 +32,12 @@ function ecco_handle_graph_callback() {
         wp_die('No auth code returned from Microsoft');
     }
 
-    // Prevent double redemption (browser refresh, duplicate ajax calls)
     if (get_transient('ecco_oauth_processing')) {
         wp_redirect(site_url('/intranet/?connected=1'));
         exit;
     }
 
-    set_transient('ecco_oauth_processing', 1, 30); // 30 seconds lock
+    set_transient('ecco_oauth_processing', 1, 30);
 
     $response = wp_remote_post(
         "https://login.microsoftonline.com/" . get_option('ecco_tenant_id') . "/oauth2/v2.0/token",
@@ -59,7 +57,6 @@ function ecco_handle_graph_callback() {
 
     if (empty($body['access_token'])) {
 
-        // Handle double-redeem gracefully
         if (!empty($body['error']) && $body['error'] === 'invalid_grant') {
             delete_transient('ecco_oauth_processing');
             wp_redirect(site_url('/intranet/?connected=1'));
@@ -71,12 +68,30 @@ function ecco_handle_graph_callback() {
         wp_die('Microsoft login failed');
     }
 
-    // Resolve profile BEFORE login
-    $_COOKIE['ecco_token'] = $body['access_token'];
-    $me = ecco_graph_get('me');
+    /**
+     * ✅ FIX: Fetch profile directly from Graph using token
+     */
+    $me_response = wp_remote_get(
+        'https://graph.microsoft.com/v1.0/me',
+        [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $body['access_token'],
+                'Accept'        => 'application/json',
+            ],
+            'timeout' => 30
+        ]
+    );
+
+    if (is_wp_error($me_response)) {
+        delete_transient('ecco_oauth_processing');
+        wp_die('Microsoft profile lookup failed (HTTP error)');
+    }
+
+    $me = json_decode(wp_remote_retrieve_body($me_response), true);
 
     if (!$me || empty($me['id'])) {
         delete_transient('ecco_oauth_processing');
+        error_log('ECCO Graph /me failed: ' . print_r($me, true));
         wp_die('Microsoft profile lookup failed');
     }
 
