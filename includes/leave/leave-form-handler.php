@@ -32,9 +32,20 @@ function ecco_handle_leave_submission() {
         }
     }
 
+    // Always resolve user profile for email + folder naming
+    if (!function_exists('ecco_get_graph_user_profile')) {
+        wp_die('Graph profile function missing.');
+    }
+
+    $me = ecco_get_graph_user_profile();
+    if (empty($me['displayName'])) {
+        wp_die('Unable to resolve Microsoft profile.');
+    }
+
     $attachment_url = null;
 
     if ($requires_image) {
+
         if (empty($_FILES['leave_attachment'])) {
             wp_die('This leave type requires a supporting document.');
         }
@@ -52,15 +63,6 @@ function ecco_handle_leave_submission() {
         $contents = file_get_contents($file['tmp_name']);
         if ($contents === false) {
             wp_die('Unable to read uploaded file.');
-        }
-
-        if (!function_exists('ecco_get_graph_user_profile')) {
-            wp_die('Graph profile function missing.');
-        }
-
-        $me = ecco_get_graph_user_profile();
-        if (empty($me['displayName'])) {
-            wp_die('Unable to resolve Microsoft profile.');
         }
 
         $display = sanitize_title($me['displayName']);
@@ -116,6 +118,46 @@ function ecco_handle_leave_submission() {
         wp_die('Leave request failed to save to database.');
     }
 
+    // Notify manager
+if (!empty($manager['mail'])) {
+
+    $dashboard_url = site_url('/leave-dashboard/');
+    $request_id = $wpdb->insert_id;
+
+    $doc_line = '';
+    if (!empty($attachment_url)) {
+        $doc_line = '<p><strong>Supporting document:</strong> 
+            <a href="' . esc_url($attachment_url) . '" target="_blank">View supporting document</a>
+        </p>';
+    }
+
+    $body = '
+        <p>A new leave request requires your approval.</p>
+
+        <p>
+            <strong>Employee:</strong> ' . esc_html($me['displayName']) . '<br>
+            <strong>Leave type:</strong> ' . esc_html($leave_type) . '<br>
+            <strong>Dates:</strong> ' . esc_html($_POST['start_date']) . ' → ' . esc_html($_POST['end_date']) . '
+        </p>
+
+        <p>
+            <a href="' . esc_url($dashboard_url) . '" target="_blank">
+                Review and action it here
+            </a>
+        </p>
+
+        ' . $doc_line . '
+    ';
+
+    wp_mail(
+        $manager['mail'],
+        'Leave request awaiting your approval',
+        $body,
+        ['Content-Type: text/html; charset=UTF-8']
+    );
+}
+
+
     wp_redirect(add_query_arg('leave_submitted', '1', wp_get_referer()));
     exit;
 }
@@ -167,8 +209,6 @@ function ecco_handle_leave_action($status) {
     if (!function_exists('ecco_current_user_can_approve_leave') || !ecco_current_user_can_approve_leave($request)) {
         wp_die('You are not allowed to action this request.');
     }
-
-    $old_status = $request->status;
 
     $updated = $wpdb->update(
         $wpdb->prefix . 'ecco_leave_requests',
