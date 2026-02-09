@@ -186,3 +186,19 @@ if (!function_exists('ecco_current_user_can_approve_leave')) {
         return false;
     }
 }
+
+add_action('init', function () {
+    if (is_user_logged_in() && function_exists('ecco_graph_get_token')) {
+        $token = ecco_graph_get_token(get_current_user_id());
+
+        if (!empty($token['access_token'])) {
+            $_COOKIE['ecco_token'] = $token['access_token'];
+        }
+    }
+});
+
+add_action('init', function () {
+    if (function_exists('ecco_create_leave_table')) {
+        ecco_create_leave_table();
+    }
+});

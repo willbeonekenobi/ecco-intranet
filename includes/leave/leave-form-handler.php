@@ -1,89 +1,150 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
+// Ensure Graph client is loaded
+if (!function_exists('ecco_graph_put')) {
+    require_once WP_PLUGIN_DIR . '/ecco-intranet/includes/graph-client.php';
+}
+
 add_action('admin_post_ecco_submit_leave', 'ecco_handle_leave_submission');
 add_action('admin_post_nopriv_ecco_submit_leave', 'ecco_handle_leave_submission');
 
 add_action('admin_post_ecco_leave_approve', 'ecco_handle_leave_approve');
 add_action('admin_post_ecco_leave_reject', 'ecco_handle_leave_reject');
 
+/**
+ * Submit a leave request
+ */
 function ecco_handle_leave_submission() {
-    if (!is_user_logged_in()) {
-        wp_die('Not allowed');
-    }
-
+    if (!is_user_logged_in()) wp_die('Not allowed');
     check_admin_referer('ecco_leave_nonce');
 
     global $wpdb;
+
+    $leave_type  = sanitize_text_field($_POST['leave_type'] ?? '');
+    $leave_types = get_option('ecco_leave_types', []);
+    $requires_image = false;
+
+    foreach ($leave_types as $lt) {
+        if (($lt['label'] ?? '') === $leave_type) {
+            $requires_image = !empty($lt['requires_image']);
+            break;
+        }
+    }
+
+    $attachment_url = null;
+
+    if ($requires_image) {
+        if (empty($_FILES['leave_attachment'])) {
+            wp_die('This leave type requires a supporting document.');
+        }
+
+        $file = $_FILES['leave_attachment'];
+
+        if (!empty($file['error'])) {
+            wp_die('Upload failed with PHP error code: ' . intval($file['error']));
+        }
+
+        if (empty($file['tmp_name']) || !file_exists($file['tmp_name'])) {
+            wp_die('Upload failed. Temporary file missing.');
+        }
+
+        $contents = file_get_contents($file['tmp_name']);
+        if ($contents === false) {
+            wp_die('Unable to read uploaded file.');
+        }
+
+        if (!function_exists('ecco_get_graph_user_profile')) {
+            wp_die('Graph profile function missing.');
+        }
+
+        $me = ecco_get_graph_user_profile();
+        if (empty($me['displayName'])) {
+            wp_die('Unable to resolve Microsoft profile.');
+        }
+
+        $display = sanitize_title($me['displayName']);
+        $month   = date('Y-m');
+        $library = 'Leave-Documents';
+
+        if (function_exists('ecco_graph_ensure_folder')) {
+            ecco_graph_ensure_folder("{$library}/{$display}/{$month}");
+        }
+
+        $path = "{$library}/{$display}/{$month}/" . sanitize_file_name($file['name']);
+
+        $drive_id = get_option('ecco_leave_drive_id');
+        if (empty($drive_id)) {
+            wp_die('Leave document library not configured.');
+        }
+
+        $upload = ecco_graph_put(
+            "/drives/{$drive_id}/root:/{$path}:/content",
+            $contents,
+            $file['type'] ?: 'application/octet-stream'
+        );
+
+        if (!$upload || empty($upload['webUrl'])) {
+            error_log('ECCO SharePoint upload failed: ' . print_r($upload, true));
+            wp_die('Failed to upload file to SharePoint.');
+        }
+
+        $attachment_url = esc_url_raw($upload['webUrl']);
+    }
 
     $manager = function_exists('ecco_resolve_effective_manager')
         ? ecco_resolve_effective_manager()
         : null;
 
-    $wpdb->insert(
+    $result = $wpdb->insert(
         $wpdb->prefix . 'ecco_leave_requests',
         [
-            'user_id'       => get_current_user_id(),
-            'leave_type'    => sanitize_text_field($_POST['leave_type'] ?? ''),
-            'start_date'    => sanitize_text_field($_POST['start_date'] ?? ''),
-            'end_date'      => sanitize_text_field($_POST['end_date'] ?? ''),
-            'reason'        => sanitize_textarea_field($_POST['reason'] ?? ''),
-            'manager_email' => $manager['mail'] ?? null,
-            'status'        => 'pending',
-        ]
+            'user_id'        => get_current_user_id(),
+            'leave_type'     => $leave_type,
+            'start_date'     => sanitize_text_field($_POST['start_date'] ?? ''),
+            'end_date'       => sanitize_text_field($_POST['end_date'] ?? ''),
+            'reason'         => sanitize_textarea_field($_POST['reason'] ?? ''),
+            'manager_email'  => $manager['mail'] ?? null,
+            'status'         => 'pending',
+            'attachment_url' => $attachment_url,
+        ],
+        ['%d','%s','%s','%s','%s','%s','%s','%s']
     );
 
-    $request_id = $wpdb->insert_id;
-
-    // Build approval URL (frontend page with shortcode)
-    $approval_url = add_query_arg(
-        ['request_id' => $request_id],
-        site_url('/leave-dashboard/')
-    );
-
-    // Email requester
-    $current_user = wp_get_current_user();
-    if (!empty($current_user->user_email)) {
-        wp_mail(
-            $current_user->user_email,
-            'Your leave request was submitted',
-            "Your leave request has been submitted and is awaiting approval.\n\n" .
-            "Dates: {$_POST['start_date']} → {$_POST['end_date']}\n\n" .
-            "You will be notified once it has been approved or rejected."
-        );
-    }
-
-    // Email manager
-    if (!empty($manager['mail'])) {
-        wp_mail(
-            $manager['mail'],
-            'Leave request awaiting your approval',
-            "A new leave request requires your approval.\n\n" .
-            "Dates: {$_POST['start_date']} → {$_POST['end_date']}\n\n" .
-            "Review and action it here:\n{$approval_url}"
-        );
+    if ($result === false) {
+        error_log('ECCO DB ERROR: ' . $wpdb->last_error);
+        wp_die('Leave request failed to save to database.');
     }
 
     wp_redirect(add_query_arg('leave_submitted', '1', wp_get_referer()));
     exit;
 }
 
+/**
+ * Approve
+ */
 function ecco_handle_leave_approve() {
     ecco_handle_leave_action('approved');
 }
 
+/**
+ * Reject
+ */
 function ecco_handle_leave_reject() {
     ecco_handle_leave_action('rejected');
 }
 
+/**
+ * Approve / Reject core handler
+ */
 function ecco_handle_leave_action($status) {
-    if (!is_user_logged_in()) {
-        wp_die('Not allowed');
-    }
+    if (!is_user_logged_in()) wp_die('Not allowed');
 
     $id = intval($_POST['request_id'] ?? 0);
-    if (!$id) {
-        wp_die('Invalid request');
+    if (!$id) wp_die('Invalid request.');
+
+    if (!isset($_POST['_wpnonce'])) {
+        wp_die('Security check failed (nonce missing).');
     }
 
     check_admin_referer('ecco_leave_action_' . $id);
@@ -100,83 +161,35 @@ function ecco_handle_leave_action($status) {
     );
 
     if (!$request) {
-        wp_die('Request not found');
+        wp_die('Leave request not found.');
     }
 
-    // Permission check (manager-only, supports self-managed / no-manager edge case)
-    if (!function_exists('ecco_current_user_can_approve_leave')) {
-        function ecco_current_user_can_approve_leave($request) {
-            if (!function_exists('ecco_get_graph_user_profile')) {
-                return false;
-            }
-
-            $me = ecco_get_graph_user_profile();
-            $my_email = strtolower(trim($me['mail'] ?? ''));
-
-            if (empty($my_email)) {
-                return false;
-            }
-
-            // Case 1: Manager email exists → must match
-            if (!empty($request->manager_email)) {
-                return strtolower($request->manager_email) === $my_email;
-            }
-
-            // Case 2: No manager set in request → allow self-managed only
-            if (function_exists('ecco_get_graph_manager_profile')) {
-                $manager = ecco_get_graph_manager_profile();
-
-                if (!$manager || empty($manager['mail'])) {
-                    return true; // no manager in Entra → self-managed
-                }
-
-                return strtolower($manager['mail']) === $my_email;
-            }
-
-            return false;
-        }
-    }
-
-    if (!ecco_current_user_can_approve_leave($request)) {
-        wp_die('You are not allowed to approve or reject this request.');
+    if (!function_exists('ecco_current_user_can_approve_leave') || !ecco_current_user_can_approve_leave($request)) {
+        wp_die('You are not allowed to action this request.');
     }
 
     $old_status = $request->status;
 
-    // Update leave status
-    $wpdb->update(
+    $updated = $wpdb->update(
         $wpdb->prefix . 'ecco_leave_requests',
         ['status' => $status],
-        ['id' => $id]
+        ['id' => $id],
+        ['%s'],
+        ['%d']
     );
 
-    // Audit log
-    $me = function_exists('ecco_get_graph_user_profile') ? ecco_get_graph_user_profile() : [];
+    if ($updated === false) {
+        error_log('ECCO DB UPDATE ERROR: ' . $wpdb->last_error);
+        wp_die('Failed to update leave request.');
+    }
 
-    $wpdb->insert(
-        $wpdb->prefix . 'ecco_leave_audit',
-        [
-            'leave_request_id' => $id,
-            'action'           => $status,
-            'actor_user_id'    => get_current_user_id(),
-            'actor_email'      => sanitize_email($me['mail'] ?? ''),
-            'old_status'       => $old_status,
-            'new_status'       => $status,
-            'comment'          => $comment,
-            'ip_address'       => $_SERVER['REMOTE_ADDR'] ?? null,
-            'user_agent'       => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 500),
-        ]
-    );
-
-    // Email requester on approval/rejection
+    // Notify requester
     $requester = get_userdata($request->user_id);
     if ($requester && !empty($requester->user_email)) {
         wp_mail(
             $requester->user_email,
             "Your leave request was {$status}",
-            "Your leave request has been {$status}.\n\n" .
-            "Dates: {$request->start_date} → {$request->end_date}\n\n" .
-            "Manager comment:\n{$comment}"
+            "Your leave request has been {$status}.\n\nManager comment:\n{$comment}"
         );
     }
 

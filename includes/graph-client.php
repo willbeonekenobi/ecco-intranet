@@ -1,38 +1,33 @@
 <?php
+if (!defined('ABSPATH')) exit;
 
-function ecco_graph_get_access_token() {
-    if (!is_user_logged_in()) return null;
-
-    if (!function_exists('ecco_graph_get_token')) {
-        require_once __DIR__ . '/graph-token-store.php';
+/**
+ * Get access token from cookie (hydrated from DB on init)
+ */
+function ecco_graph_get_token_from_cookie() {
+    if (!empty($_COOKIE['ecco_token'])) {
+        return $_COOKIE['ecco_token'];
     }
 
-    $token = ecco_graph_get_token(get_current_user_id());
-
-    return $token['access_token'] ?? null;
-}
-
-function ecco_graph_headers() {
-    $token = ecco_graph_get_access_token();
-    if (!$token) return null;
-
-    return [
-        'Authorization' => 'Bearer ' . $token,
-        'Accept'        => 'application/json'
-    ];
+    error_log('ECCO Graph: No token in cookie');
+    return null;
 }
 
 /**
- * GET request
+ * GET request to Microsoft Graph
  */
 function ecco_graph_get($endpoint) {
-    $headers = ecco_graph_headers();
-    if (!$headers) return null;
+    $token = ecco_graph_get_token_from_cookie();
+    if (!$token) {
+        return null;
+    }
 
     $response = wp_remote_get(
         'https://graph.microsoft.com/v1.0/' . ltrim($endpoint, '/'),
         [
-            'headers' => $headers,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $token,
+            ],
             'timeout' => 60
         ]
     );
@@ -42,50 +37,35 @@ function ecco_graph_get($endpoint) {
         return null;
     }
 
-    return json_decode(wp_remote_retrieve_body($response), true);
-}
+    $code = wp_remote_retrieve_response_code($response);
+    $body = wp_remote_retrieve_body($response);
+    $json = json_decode($body, true);
 
-/**
- * POST request (upload session)
- */
-function ecco_graph_post($endpoint, $body = []) {
-    $headers = ecco_graph_headers();
-    if (!$headers) return null;
-
-    $headers['Content-Type'] = 'application/json';
-
-    $response = wp_remote_post(
-        'https://graph.microsoft.com/v1.0/' . ltrim($endpoint, '/'),
-        [
-            'headers' => $headers,
-            'body'    => json_encode($body),
-            'timeout' => 60
-        ]
-    );
-
-    if (is_wp_error($response)) {
-        error_log('ECCO Graph POST error: ' . $response->get_error_message());
+    if ($code >= 400) {
+        error_log('ECCO Graph GET HTTP ' . $code . ': ' . $body);
         return null;
     }
 
-    return json_decode(wp_remote_retrieve_body($response), true);
+    return $json;
 }
 
 /**
- * PUT request (upload chunks)
+ * PUT request (file uploads)
  */
-function ecco_graph_put_raw($url, $body, $content_range) {
-    $headers = ecco_graph_headers();
-    if (!$headers) return null;
-
-    $headers['Content-Length'] = strlen($body);
-    $headers['Content-Range']  = $content_range;
+function ecco_graph_put($endpoint, $body, $content_type = 'application/octet-stream') {
+    $token = ecco_graph_get_token_from_cookie();
+    if (!$token) {
+        return null;
+    }
 
     $response = wp_remote_request(
-        $url,
+        'https://graph.microsoft.com/v1.0/' . ltrim($endpoint, '/'),
         [
             'method'  => 'PUT',
-            'headers' => $headers,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $token,
+                'Content-Type'  => $content_type
+            ],
             'body'    => $body,
             'timeout' => 120
         ]
@@ -96,5 +76,90 @@ function ecco_graph_put_raw($url, $body, $content_range) {
         return null;
     }
 
-    return wp_remote_retrieve_response_code($response);
+    $code = wp_remote_retrieve_response_code($response);
+    $body = wp_remote_retrieve_body($response);
+    $json = json_decode($body, true);
+
+    if ($code >= 400) {
+        error_log('ECCO Graph PUT HTTP ' . $code . ': ' . $body);
+        return null;
+    }
+
+    return $json;
 }
+
+/**
+ * POST request (folder creation, upload sessions, etc.)
+ */
+function ecco_graph_post($endpoint, $body = []) {
+    $token = ecco_graph_get_token_from_cookie();
+    if (!$token) {
+        return null;
+    }
+
+    $response = wp_remote_post(
+        'https://graph.microsoft.com/v1.0/' . ltrim($endpoint, '/'),
+        [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $token,
+                'Content-Type'  => 'application/json'
+            ],
+            'body'    => json_encode($body),
+            'timeout' => 60
+        ]
+    );
+
+    if (is_wp_error($response)) {
+        error_log('ECCO Graph POST error: ' . $response->get_error_message());
+        return null;
+    }
+
+    $code = wp_remote_retrieve_response_code($response);
+    $body = wp_remote_retrieve_body($response);
+    $json = json_decode($body, true);
+
+    if ($code >= 400) {
+        error_log('ECCO Graph POST HTTP ' . $code . ': ' . $body);
+        return null;
+    }
+
+    return $json;
+}
+
+/**
+ * Ensure SharePoint folder path exists (real folders)
+ * Example: Leave-Documents/john-doe/2026-02
+ */
+function ecco_graph_ensure_folder($path) {
+
+    $parts = array_filter(explode('/', trim($path, '/')));
+    $parent_id = 'root';
+
+    foreach ($parts as $folder) {
+
+        // Look for existing folder
+        $existing = ecco_graph_get("/me/drive/items/{$parent_id}/children?\$filter=name eq '" . rawurlencode($folder) . "'");
+
+        if (!empty($existing['value'][0]['id'])) {
+            $parent_id = $existing['value'][0]['id'];
+            continue;
+        }
+
+        // Create folder
+        $created = ecco_graph_post("/me/drive/items/{$parent_id}/children", [
+            'name'   => $folder,
+            'folder' => new stdClass(),
+            '@microsoft.graph.conflictBehavior' => 'fail'
+        ]);
+
+        if (empty($created['id'])) {
+            error_log('ECCO folder create failed: ' . print_r($created, true));
+            return false;
+        }
+
+        $parent_id = $created['id'];
+    }
+
+    return true;
+}
+
