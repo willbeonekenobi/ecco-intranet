@@ -13,7 +13,7 @@ add_action('admin_post_ecco_leave_approve', 'ecco_handle_leave_approve');
 add_action('admin_post_ecco_leave_reject', 'ecco_handle_leave_reject');
 
 /**
- * Submit a leave request
+ * Submit leave request
  */
 function ecco_handle_leave_submission() {
     if (!is_user_logged_in()) wp_die('Not allowed');
@@ -32,38 +32,21 @@ function ecco_handle_leave_submission() {
         }
     }
 
-    // Always resolve user profile for email + folder naming
-    if (!function_exists('ecco_get_graph_user_profile')) {
-        wp_die('Graph profile function missing.');
-    }
-
-    $me = ecco_get_graph_user_profile();
-    if (empty($me['displayName'])) {
-        wp_die('Unable to resolve Microsoft profile.');
-    }
-
     $attachment_url = null;
 
     if ($requires_image) {
-
-        if (empty($_FILES['leave_attachment'])) {
-            wp_die('This leave type requires a supporting document.');
-        }
+        if (empty($_FILES['leave_attachment'])) wp_die('This leave type requires a supporting document.');
 
         $file = $_FILES['leave_attachment'];
 
-        if (!empty($file['error'])) {
-            wp_die('Upload failed with PHP error code: ' . intval($file['error']));
-        }
-
-        if (empty($file['tmp_name']) || !file_exists($file['tmp_name'])) {
-            wp_die('Upload failed. Temporary file missing.');
-        }
+        if (!empty($file['error'])) wp_die('Upload failed with PHP error code: ' . intval($file['error']));
+        if (empty($file['tmp_name']) || !file_exists($file['tmp_name'])) wp_die('Upload failed. Temporary file missing.');
 
         $contents = file_get_contents($file['tmp_name']);
-        if ($contents === false) {
-            wp_die('Unable to read uploaded file.');
-        }
+        if (!$contents) wp_die('Unable to read uploaded file.');
+
+        $me = ecco_get_graph_user_profile();
+        if (empty($me['displayName'])) wp_die('Unable to resolve Microsoft profile.');
 
         $display = sanitize_title($me['displayName']);
         $month   = date('Y-m');
@@ -76,9 +59,7 @@ function ecco_handle_leave_submission() {
         $path = "{$library}/{$display}/{$month}/" . sanitize_file_name($file['name']);
 
         $drive_id = get_option('ecco_leave_drive_id');
-        if (empty($drive_id)) {
-            wp_die('Leave document library not configured.');
-        }
+        if (empty($drive_id)) wp_die('Leave document library not configured.');
 
         $upload = ecco_graph_put(
             "/drives/{$drive_id}/root:/{$path}:/content",
@@ -94,11 +75,9 @@ function ecco_handle_leave_submission() {
         $attachment_url = esc_url_raw($upload['webUrl']);
     }
 
-    $manager = function_exists('ecco_resolve_effective_manager')
-        ? ecco_resolve_effective_manager()
-        : null;
+    $manager = ecco_resolve_effective_manager();
 
-    $result = $wpdb->insert(
+    $wpdb->insert(
         $wpdb->prefix . 'ecco_leave_requests',
         [
             'user_id'        => get_current_user_id(),
@@ -109,75 +88,40 @@ function ecco_handle_leave_submission() {
             'manager_email'  => $manager['mail'] ?? null,
             'status'         => 'pending',
             'attachment_url' => $attachment_url,
-        ],
-        ['%d','%s','%s','%s','%s','%s','%s','%s']
+            'manager_comment'=> null,
+        ]
     );
 
-    if ($result === false) {
-        error_log('ECCO DB ERROR: ' . $wpdb->last_error);
-        wp_die('Leave request failed to save to database.');
-    }
-
-    // Notify manager
-if (!empty($manager['mail'])) {
-
-    $dashboard_url = site_url('/leave-dashboard/');
     $request_id = $wpdb->insert_id;
 
-    $doc_line = '';
-    if (!empty($attachment_url)) {
-        $doc_line = '<p><strong>Supporting document:</strong> 
-            <a href="' . esc_url($attachment_url) . '" target="_blank">View supporting document</a>
-        </p>';
+    // Email manager
+    if (!empty($manager['mail'])) {
+        $dashboard_url = site_url('/leave-dashboard/');
+
+        $doc_line = $attachment_url
+            ? "\nSupporting document:\n<a href=\"{$attachment_url}\">View document</a>\n"
+            : '';
+
+        $body =
+            "A new leave request requires your approval.\n\n" .
+            "Employee: {$me['displayName']}\n" .
+            "Leave type: {$leave_type}\n" .
+            "Dates: {$_POST['start_date']} → {$_POST['end_date']}\n\n" .
+            "Review and action it here:\n{$dashboard_url}\n" .
+            $doc_line;
+
+        wp_mail($manager['mail'], 'Leave request awaiting your approval', $body);
     }
-
-    $body = '
-        <p>A new leave request requires your approval.</p>
-
-        <p>
-            <strong>Employee:</strong> ' . esc_html($me['displayName']) . '<br>
-            <strong>Leave type:</strong> ' . esc_html($leave_type) . '<br>
-            <strong>Dates:</strong> ' . esc_html($_POST['start_date']) . ' → ' . esc_html($_POST['end_date']) . '
-        </p>
-
-        <p>
-            <a href="' . esc_url($dashboard_url) . '" target="_blank">
-                Review and action it here
-            </a>
-        </p>
-
-        ' . $doc_line . '
-    ';
-
-    wp_mail(
-        $manager['mail'],
-        'Leave request awaiting your approval',
-        $body,
-        ['Content-Type: text/html; charset=UTF-8']
-    );
-}
-
 
     wp_redirect(add_query_arg('leave_submitted', '1', wp_get_referer()));
     exit;
 }
 
-/**
- * Approve
- */
-function ecco_handle_leave_approve() {
-    ecco_handle_leave_action('approved');
-}
+function ecco_handle_leave_approve() { ecco_handle_leave_action('approved'); }
+function ecco_handle_leave_reject()  { ecco_handle_leave_action('rejected'); }
 
 /**
- * Reject
- */
-function ecco_handle_leave_reject() {
-    ecco_handle_leave_action('rejected');
-}
-
-/**
- * Approve / Reject core handler
+ * Approve / Reject handler
  */
 function ecco_handle_leave_action($status) {
     if (!is_user_logged_in()) wp_die('Not allowed');
@@ -185,47 +129,54 @@ function ecco_handle_leave_action($status) {
     $id = intval($_POST['request_id'] ?? 0);
     if (!$id) wp_die('Invalid request.');
 
-    if (!isset($_POST['_wpnonce'])) {
-        wp_die('Security check failed (nonce missing).');
-    }
-
     check_admin_referer('ecco_leave_action_' . $id);
 
     $comment = sanitize_textarea_field($_POST['manager_comment'] ?? '');
-    if (empty($comment)) {
-        wp_die('Manager comment is required.');
-    }
+    if (!$comment) wp_die('Manager comment is required.');
 
     global $wpdb;
 
-    $request = $wpdb->get_row(
-        $wpdb->prepare("SELECT * FROM {$wpdb->prefix}ecco_leave_requests WHERE id = %d", $id)
-    );
+    $request = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}ecco_leave_requests WHERE id=%d", $id
+    ));
+    if (!$request) wp_die('Request not found.');
 
-    if (!$request) {
-        wp_die('Leave request not found.');
-    }
-
-    if (!function_exists('ecco_current_user_can_approve_leave') || !ecco_current_user_can_approve_leave($request)) {
+    if (!ecco_current_user_can_approve_leave($request)) {
         wp_die('You are not allowed to action this request.');
     }
 
-    $updated = $wpdb->update(
+    // Update request + comment
+    $wpdb->update(
         $wpdb->prefix . 'ecco_leave_requests',
-        ['status' => $status],
-        ['id' => $id],
-        ['%s'],
-        ['%d']
+        [
+            'status' => $status,
+            'manager_comment' => $comment
+        ],
+        ['id' => $id]
     );
 
-    if ($updated === false) {
-        error_log('ECCO DB UPDATE ERROR: ' . $wpdb->last_error);
-        wp_die('Failed to update leave request.');
+    // Audit (optional history)
+    if ($wpdb->get_var("SHOW TABLES LIKE '{$wpdb->prefix}ecco_leave_audit'")) {
+        $me = ecco_get_graph_user_profile();
+        $wpdb->insert(
+            $wpdb->prefix . 'ecco_leave_audit',
+            [
+                'leave_request_id' => $id,
+                'action'           => $status,
+                'actor_user_id'    => get_current_user_id(),
+                'actor_email'      => sanitize_email($me['mail'] ?? ''),
+                'old_status'       => $request->status,
+                'new_status'       => $status,
+                'comment'          => $comment,
+                'ip_address'       => $_SERVER['REMOTE_ADDR'] ?? null,
+                'user_agent'       => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 500),
+            ]
+        );
     }
 
-    // Notify requester
+    // Email requester
     $requester = get_userdata($request->user_id);
-    if ($requester && !empty($requester->user_email)) {
+    if ($requester && $requester->user_email) {
         wp_mail(
             $requester->user_email,
             "Your leave request was {$status}",
