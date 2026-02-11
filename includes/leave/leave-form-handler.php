@@ -96,22 +96,42 @@ function ecco_handle_leave_submission() {
 
     // Email manager
     if (!empty($manager['mail'])) {
-        $dashboard_url = site_url('/leave-dashboard/');
 
-        $doc_line = $attachment_url
-            ? "\nSupporting document:\n<a href=\"{$attachment_url}\">View document</a>\n"
-            : '';
+    $dashboard_url = site_url('/leave-dashboard/');
+    $request_id = $wpdb->insert_id;
 
-        $body =
-            "A new leave request requires your approval.\n\n" .
-            "Employee: {$me['displayName']}\n" .
-            "Leave type: {$leave_type}\n" .
-            "Dates: {$_POST['start_date']} → {$_POST['end_date']}\n\n" .
-            "Review and action it here:\n{$dashboard_url}\n" .
-            $doc_line;
-
-        wp_mail($manager['mail'], 'Leave request awaiting your approval', $body);
+    $doc_line = '';
+    if (!empty($attachment_url)) {
+        $doc_line = '<p><strong>Supporting document:</strong> 
+            <a href="' . esc_url($attachment_url) . '" target="_blank">View supporting document</a>
+        </p>';
     }
+
+    $body = '
+        <p>A new leave request requires your approval.</p>
+
+        <p>
+            <strong>Employee:</strong> ' . esc_html($me['displayName']) . '<br>
+            <strong>Leave type:</strong> ' . esc_html($leave_type) . '<br>
+            <strong>Dates:</strong> ' . esc_html($_POST['start_date']) . ' → ' . esc_html($_POST['end_date']) . '
+        </p>
+
+        <p>
+            <a href="' . esc_url($dashboard_url) . '" target="_blank">
+                Review and action it here
+            </a>
+        </p>
+
+        ' . $doc_line . '
+    ';
+
+    wp_mail(
+        $manager['mail'],
+        'Leave request awaiting your approval',
+        $body,
+        ['Content-Type: text/html; charset=UTF-8']
+    );
+}
 
     wp_redirect(add_query_arg('leave_submitted', '1', wp_get_referer()));
     exit;
