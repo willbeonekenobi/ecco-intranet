@@ -101,3 +101,34 @@
     font-size: 14px;
     opacity: 0.8;
 }
+.ecco-optional {
+    font-size: 12px;
+    color: #777;
+    font-style: italic;
+    margin-left: 6px;
+}
+
+.ecco-leave-table td em {
+    color: #444;
+}
+
+.ecco-leave-table .ecco-doc-link {
+    font-weight: 500;
+}
+
+.ecco-leave-table .ecco-status {
+    font-weight: bold;
+    text-transform: capitalize;
+}
+
+.ecco-leave-table .ecco-status.pending {
+    color: #c58a00;
+}
+
+.ecco-leave-table .ecco-status.approved {
+    color: #1e7e34;
+}
+
+.ecco-leave-table .ecco-status.rejected {
+    color: #b02a37;
+}

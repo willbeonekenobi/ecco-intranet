@@ -94,8 +94,13 @@ add_action('template_redirect', function () {
 register_activation_hook(__FILE__, 'ecco_intranet_activate');
 
 function ecco_intranet_activate() {
+
     if (function_exists('ecco_create_leave_table')) {
         ecco_create_leave_table();
+    }
+
+    if (function_exists('ecco_create_leave_balance_table')) {
+        ecco_create_leave_balance_table();
     }
 }
 
