@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ECCO Intranet
  * Description: Microsoft SSO powered intranet with SharePoint document libraries
- * Version: 1.0.0
+ * Version: Alpha 1.0.0
  */
 
 if (!defined('ABSPATH')) exit;
