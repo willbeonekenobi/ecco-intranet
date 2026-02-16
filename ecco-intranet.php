@@ -28,6 +28,7 @@ require_once ECCO_PATH . 'includes/leave/leave-dashboard-shortcode.php';
  * Enqueue assets ONLY when intranet is rendered
  */
 function ecco_enqueue_assets() {
+
     wp_enqueue_style(
         'ecco-intranet',
         ECCO_URL . 'assets/css/intranet.css'
@@ -47,12 +48,12 @@ function ecco_enqueue_assets() {
     ]);
 }
 
+
 /**
  * Intranet shortcode
  */
 add_shortcode('ecco_intranet', function () {
 
-    // If not authenticated, show login link (NO redirect here)
     if (!ecco_is_authenticated()) {
         return '<p><a href="' . esc_url(ecco_login_url()) . '">Sign in with Microsoft</a></p>';
     }
@@ -64,21 +65,17 @@ add_shortcode('ecco_intranet', function () {
     return ob_get_clean();
 });
 
+
 /**
  * Prevent unauthenticated access to library pages
  */
 add_action('template_redirect', function () {
 
-    if (!is_page()) {
-        return;
-    }
+    if (!is_page()) return;
 
     $post = get_post();
-    if (!$post) {
-        return;
-    }
+    if (!$post) return;
 
-    // Protect pages that render SharePoint libraries
     if (has_shortcode($post->post_content, 'ecco_library')) {
 
         if (!ecco_is_authenticated()) {
@@ -87,31 +84,92 @@ add_action('template_redirect', function () {
         }
     }
 });
+
+
 /**
- * Plugin activation
- * Creates required database tables
+ * =========================================================
+ * PLUGIN ACTIVATION
+ * =========================================================
  */
 register_activation_hook(__FILE__, 'ecco_intranet_activate');
 
 function ecco_intranet_activate() {
 
+    // Create leave request table
     if (function_exists('ecco_create_leave_table')) {
         ecco_create_leave_table();
     }
 
+    // Create leave balance table
     if (function_exists('ecco_create_leave_balance_table')) {
         ecco_create_leave_balance_table();
     }
+
+    // Upgrade schema safely
+    ecco_leave_maybe_upgrade_database();
 }
+
+
+/**
+ * =========================================================
+ * SAFE DATABASE MIGRATION (COMMERCIAL-GRADE)
+ * =========================================================
+ */
+function ecco_leave_maybe_upgrade_database() {
+
+    global $wpdb;
+
+    $table = $wpdb->prefix . 'ecco_leave_requests';
+
+    // Ensure table exists
+    $exists = $wpdb->get_var(
+        $wpdb->prepare("SHOW TABLES LIKE %s", $table)
+    );
+
+    if ($exists !== $table) return;
+
+    // --- requester_comment column ---
+    $column = $wpdb->get_results(
+        "SHOW COLUMNS FROM $table LIKE 'requester_comment'"
+    );
+
+    if (empty($column)) {
+
+        $wpdb->query(
+            "ALTER TABLE $table
+             ADD COLUMN requester_comment TEXT NULL
+             AFTER reason"
+        );
+    }
+
+    // --- created_at column ---
+    $created_col = $wpdb->get_results(
+        "SHOW COLUMNS FROM $table LIKE 'created_at'"
+    );
+
+    if (empty($created_col)) {
+
+        $wpdb->query(
+            "ALTER TABLE $table
+             ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+        );
+    }
+
+    update_option('ecco_leave_db_version', '1.1');
+}
+
+
+/**
+ * =========================================================
+ * MICROSOFT GRAPH HELPERS
+ * =========================================================
+ */
 
 if (!function_exists('ecco_get_graph_user_profile')) {
     function ecco_get_graph_user_profile($user_id = null) {
-        // Fetch the current signed-in user from Microsoft Graph
-        $me = ecco_graph_get('/me');
 
-        if (!$me) {
-            return [];
-        }
+        $me = ecco_graph_get('/me');
+        if (!$me) return [];
 
         return [
             'displayName' => $me['displayName'] ?? '',
@@ -122,6 +180,7 @@ if (!function_exists('ecco_get_graph_user_profile')) {
 
 if (!function_exists('ecco_get_graph_manager_profile')) {
     function ecco_get_graph_manager_profile() {
+
         $manager = ecco_graph_get('/me/manager');
 
         if (!$manager || isset($manager['error'])) {
@@ -138,18 +197,13 @@ if (!function_exists('ecco_get_graph_manager_profile')) {
 
 if (!function_exists('ecco_resolve_effective_manager')) {
     function ecco_resolve_effective_manager() {
+
         $me = ecco_get_graph_user_profile();
         $manager = ecco_get_graph_manager_profile();
 
-        // No manager in Entra
-        if (!$manager || empty($manager['id'])) {
-            return null;
-        }
+        if (!$manager || empty($manager['id'])) return null;
 
-        // Self-managed edge case
-        if (!empty($me['id']) && $me['id'] === $manager['id']) {
-            return null;
-        }
+        if (!empty($me['id']) && $me['id'] === $manager['id']) return null;
 
         return $manager;
     }
@@ -157,43 +211,43 @@ if (!function_exists('ecco_resolve_effective_manager')) {
 
 if (!function_exists('ecco_current_user_can_approve_leave')) {
     function ecco_current_user_can_approve_leave($request) {
-        if (current_user_can('manage_options')) {
-            return true; // WP admins always allowed
-        }
 
-        if (!function_exists('ecco_get_graph_user_profile')) {
-            return false;
-        }
+        if (current_user_can('manage_options')) return true;
+
+        if (!function_exists('ecco_get_graph_user_profile')) return false;
 
         $me = ecco_get_graph_user_profile();
         $my_email = strtolower(trim($me['mail'] ?? ''));
 
-        // If manager email matches current user email
-        if (!empty($request->manager_email) && strtolower($request->manager_email) === $my_email) {
+        if (!empty($request->manager_email) &&
+            strtolower($request->manager_email) === $my_email) {
             return true;
         }
 
-        // If no manager stored, allow self-approval ONLY if user is self-managed or no manager set in Entra
-        if (empty($request->manager_email) && function_exists('ecco_get_graph_manager_profile')) {
+        if (empty($request->manager_email) &&
+            function_exists('ecco_get_graph_manager_profile')) {
+
             $manager = ecco_get_graph_manager_profile();
 
-            if (!$manager || empty($manager['mail'])) {
-                // No manager in Entra → self-managed allowed
-                return true;
-            }
+            if (!$manager || empty($manager['mail'])) return true;
 
-            if (strtolower($manager['mail']) === $my_email) {
-                // Self-managed manager scenario
-                return true;
-            }
+            if (strtolower($manager['mail']) === $my_email) return true;
         }
 
         return false;
     }
 }
 
+
+/**
+ * =========================================================
+ * TOKEN COOKIE SETUP
+ * =========================================================
+ */
 add_action('init', function () {
+
     if (is_user_logged_in() && function_exists('ecco_graph_get_token')) {
+
         $token = ecco_graph_get_token(get_current_user_id());
 
         if (!empty($token['access_token'])) {
@@ -202,7 +256,12 @@ add_action('init', function () {
     }
 });
 
+
+/**
+ * Ensure leave table exists during runtime (safe fallback)
+ */
 add_action('init', function () {
+
     if (function_exists('ecco_create_leave_table')) {
         ecco_create_leave_table();
     }
