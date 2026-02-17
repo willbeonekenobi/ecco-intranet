@@ -79,7 +79,7 @@ add_shortcode('ecco_leave_dashboard', function () {
             );
 
             $manager_comment = $audit->comment ?? '';
-            $requester_comment = $r->requester_comment ?? '';
+            $requester_comment = $r->requester_comment ?? $r->comments ?? '';
 
             $disabled = in_array($r->status, ['approved','rejected'], true);
         ?>
