@@ -129,48 +129,6 @@ function ecco_handle_leave_submission() {
     exit;
 }
 
-
-function ecco_calculate_leave_days($start_date, $end_date) {
-
-    global $wpdb;
-
-    $table = $wpdb->prefix . 'ecco_public_holidays';
-
-    $start = new DateTime($start_date);
-    $end   = new DateTime($end_date);
-    $end->modify('+1 day');
-
-    $interval = new DateInterval('P1D');
-    $period = new DatePeriod($start, $interval, $end);
-
-    $days = 0;
-
-    foreach ($period as $date) {
-
-        $dayOfWeek = $date->format('N'); // 1=Mon, 7=Sun
-
-        /* Skip weekends */
-        if ($dayOfWeek >= 6) continue;
-
-        /* Skip public holidays */
-
-        $holiday = $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table WHERE holiday_date = %s",
-            $date->format('Y-m-d')
-        ));
-
-        if ($holiday) continue;
-
-        $days++;
-    }
-
-    return $days;
-}
-
-/* =========================================================
-   APPROVE / REJECT
-========================================================= */
-
 function ecco_handle_leave_approve() { ecco_handle_leave_action('approved'); }
 function ecco_handle_leave_reject()  { ecco_handle_leave_action('rejected'); }
 
@@ -224,42 +182,6 @@ function ecco_handle_leave_action($status) {
             'created_at'       => current_time('mysql')
         ]
     );
-
-    /* ---------- AUTO DEDUCT ON APPROVAL ---------- */
-
-    if ($status === 'approved') {
-
-        $days = ecco_calculate_leave_days(
-    $request->start_date,
-    $request->end_date
-);
-
-        $balance_row = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM $balance_table WHERE user_id = %d AND leave_type = %s",
-            $request->user_id,
-            $request->leave_type
-        ));
-
-        if ($balance_row) {
-
-            $new_balance = $balance_row->balance - $days;
-
-            if ($new_balance < 0) {
-                wp_die('Insufficient leave balance.');
-            }
-
-            $wpdb->update(
-                $balance_table,
-                [
-                    'balance'      => $new_balance,
-                    'last_updated' => current_time('mysql')
-                ],
-                ['id' => $balance_row->id]
-            );
-        }
-    }
-
-    /* ---------- Notify employee ---------- */
 
     $requester = get_userdata($request->user_id);
 

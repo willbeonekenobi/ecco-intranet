@@ -29,6 +29,7 @@ require_once ECCO_PATH . 'includes/leave/leave-dashboard-shortcode.php';
  */
 function ecco_enqueue_assets() {
 
+
     wp_enqueue_style(
         'ecco-intranet',
         ECCO_URL . 'assets/css/intranet.css'
@@ -49,6 +50,7 @@ function ecco_enqueue_assets() {
 }
 
 
+
 /**
  * Intranet shortcode
  */
@@ -66,14 +68,17 @@ add_shortcode('ecco_intranet', function () {
 });
 
 
+
 /**
  * Prevent unauthenticated access to library pages
  */
 add_action('template_redirect', function () {
 
     if (!is_page()) return;
+    if (!is_page()) return;
 
     $post = get_post();
+    if (!$post) return;
     if (!$post) return;
 
     if (has_shortcode($post->post_content, 'ecco_library')) {
@@ -86,7 +91,12 @@ add_action('template_redirect', function () {
 });
 
 
+
+
 /**
+ * =========================================================
+ * PLUGIN ACTIVATION
+ * =========================================================
  * =========================================================
  * PLUGIN ACTIVATION
  * =========================================================
@@ -96,10 +106,12 @@ register_activation_hook(__FILE__, 'ecco_intranet_activate');
 function ecco_intranet_activate() {
 
     // Create leave request table
+    // Create leave request table
     if (function_exists('ecco_create_leave_table')) {
         ecco_create_leave_table();
     }
 
+    // Create leave balance table
     // Create leave balance table
     if (function_exists('ecco_create_leave_balance_table')) {
         ecco_create_leave_balance_table();
@@ -171,7 +183,9 @@ function ecco_leave_maybe_upgrade_database() {
 if (!function_exists('ecco_get_graph_user_profile')) {
     function ecco_get_graph_user_profile($user_id = null) {
 
+
         $me = ecco_graph_get('/me');
+        if (!$me) return [];
         if (!$me) return [];
 
         return [
@@ -183,6 +197,7 @@ if (!function_exists('ecco_get_graph_user_profile')) {
 
 if (!function_exists('ecco_get_graph_manager_profile')) {
     function ecco_get_graph_manager_profile() {
+
 
         $manager = ecco_graph_get('/me/manager');
 
@@ -201,11 +216,14 @@ if (!function_exists('ecco_get_graph_manager_profile')) {
 if (!function_exists('ecco_resolve_effective_manager')) {
     function ecco_resolve_effective_manager() {
 
+
         $me = ecco_get_graph_user_profile();
         $manager = ecco_get_graph_manager_profile();
 
         if (!$manager || empty($manager['id'])) return null;
+        if (!$manager || empty($manager['id'])) return null;
 
+        if (!empty($me['id']) && $me['id'] === $manager['id']) return null;
         if (!empty($me['id']) && $me['id'] === $manager['id']) return null;
 
         return $manager;
@@ -217,11 +235,16 @@ if (!function_exists('ecco_current_user_can_approve_leave')) {
 
         if (current_user_can('manage_options')) return true;
 
+        if (current_user_can('manage_options')) return true;
+
+        if (!function_exists('ecco_get_graph_user_profile')) return false;
         if (!function_exists('ecco_get_graph_user_profile')) return false;
 
         $me = ecco_get_graph_user_profile();
         $my_email = strtolower(trim($me['mail'] ?? ''));
 
+        if (!empty($request->manager_email) &&
+            strtolower($request->manager_email) === $my_email) {
         if (!empty($request->manager_email) &&
             strtolower($request->manager_email) === $my_email) {
             return true;
@@ -230,10 +253,15 @@ if (!function_exists('ecco_current_user_can_approve_leave')) {
         if (empty($request->manager_email) &&
             function_exists('ecco_get_graph_manager_profile')) {
 
+        if (empty($request->manager_email) &&
+            function_exists('ecco_get_graph_manager_profile')) {
+
             $manager = ecco_get_graph_manager_profile();
 
             if (!$manager || empty($manager['mail'])) return true;
+            if (!$manager || empty($manager['mail'])) return true;
 
+            if (strtolower($manager['mail']) === $my_email) return true;
             if (strtolower($manager['mail']) === $my_email) return true;
         }
 
@@ -247,9 +275,17 @@ if (!function_exists('ecco_current_user_can_approve_leave')) {
  * TOKEN COOKIE SETUP
  * =========================================================
  */
+
+/**
+ * =========================================================
+ * TOKEN COOKIE SETUP
+ * =========================================================
+ */
 add_action('init', function () {
 
+
     if (is_user_logged_in() && function_exists('ecco_graph_get_token')) {
+
 
         $token = ecco_graph_get_token(get_current_user_id());
 
@@ -263,7 +299,12 @@ add_action('init', function () {
 /**
  * Ensure leave table exists during runtime (safe fallback)
  */
+
+/**
+ * Ensure leave table exists during runtime (safe fallback)
+ */
 add_action('init', function () {
+
 
     if (function_exists('ecco_create_leave_table')) {
         ecco_create_leave_table();
