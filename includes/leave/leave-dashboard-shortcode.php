@@ -38,7 +38,7 @@ add_shortcode('ecco_leave_dashboard', function () {
     if (!$requests) {
         return '<p>No leave requests found.</p>';
     }
-    
+
     ob_start(); ?>
 
     <form method="get" style="margin-bottom:15px;">
