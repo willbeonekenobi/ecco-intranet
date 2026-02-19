@@ -64,29 +64,6 @@ And surface SharePoint data within WordPress pages, Gutenberg blocks, or shortco
 
 This gives you a hybrid intranet where WordPress is the front-end and SharePoint is the backend content/collaboration store.
 
-REQUIREMENTS:
-
-Note these are subject to change and work on the version mentioned below:
-
-Wordpress 6.9.1 or later (development started on 6.8)
-PHP 8.3
-
-For Microsoft Sharepoint integration you need the following:
-
-A Microsoft 365 tenant
-
-SharePoint Online enabled
-
-Global Admin access (for initial setup only)
-
-You do not need:
-
-Entra ID Premium
-
-Azure subscription
-
-Enterprise licensing
-
 📈 Roadmap
 🔄 In Progress
 

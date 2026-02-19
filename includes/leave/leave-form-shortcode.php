@@ -12,3 +12,4 @@ function ecco_leave_request_shortcode() {
     include plugin_dir_path(__DIR__) . '../templates/leave/leave-form.php';
     return ob_get_clean();
 }
+

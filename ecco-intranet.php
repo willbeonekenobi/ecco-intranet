@@ -270,3 +270,37 @@ add_action('init', function () {
     }
 });
 
+/* ===== ECCO Leave Balance Preview (Drop-In) ===== */
+
+/* AJAX: Get current user's leave balance */
+add_action('wp_ajax_ecco_get_leave_balance', 'ecco_get_leave_balance');
+
+function ecco_get_leave_balance() {
+
+    if (!is_user_logged_in()) {
+        wp_send_json_error('Not logged in');
+    }
+
+    global $wpdb;
+
+    $user_id = get_current_user_id();
+    $leave_type = sanitize_text_field($_POST['leave_type'] ?? '');
+
+    if (!$leave_type) {
+        wp_send_json_error('Missing leave type');
+    }
+
+    $table = $wpdb->prefix . 'ecco_leave_balances';
+
+    $balance = $wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT balance FROM $table WHERE user_id = %d AND leave_type = %s",
+            $user_id,
+            $leave_type
+        )
+    );
+
+    wp_send_json_success([
+        'balance' => $balance !== null ? floatval($balance) : 0
+    ]);
+}

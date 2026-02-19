@@ -1,15 +1,20 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
+/* Load Graph client if needed */
 if (!function_exists('ecco_graph_put')) {
     require_once WP_PLUGIN_DIR . '/ecco-intranet/includes/graph-client.php';
 }
+
+/* =========================================================
+   HOOKS
+========================================================= */
 
 add_action('admin_post_ecco_submit_leave', 'ecco_handle_leave_submission');
 add_action('admin_post_nopriv_ecco_submit_leave', 'ecco_handle_leave_submission');
 
 add_action('admin_post_ecco_leave_approve', 'ecco_handle_leave_approve');
-add_action('admin_post_ecco_leave_reject', 'ecco_handle_leave_reject');
+add_action('admin_post_ecco_leave_reject',  'ecco_handle_leave_reject');
 
 
 /* =========================================================
@@ -23,20 +28,24 @@ function ecco_handle_leave_submission() {
 
     global $wpdb;
 
-    $user_id            = get_current_user_id();
-    $leave_type         = sanitize_text_field($_POST['leave_type'] ?? '');
-    $reason             = sanitize_textarea_field($_POST['reason'] ?? '');
-    $requester_comment  = sanitize_textarea_field($_POST['reason'] ?? ''); // same field from form
-    $start_date         = sanitize_text_field($_POST['start_date'] ?? '');
-    $end_date           = sanitize_text_field($_POST['end_date'] ?? '');
+    /* ---------- Form Data ---------- */
+
+    $user_id           = get_current_user_id();
+    $leave_type        = sanitize_text_field($_POST['leave_type'] ?? '');
+    $reason            = sanitize_textarea_field($_POST['reason'] ?? '');
+    $requester_comment = sanitize_textarea_field($_POST['reason'] ?? '');
+    $start_date        = sanitize_text_field($_POST['start_date'] ?? '');
+    $end_date          = sanitize_text_field($_POST['end_date'] ?? '');
 
     if (!$leave_type || !$start_date || !$end_date) {
         wp_die('Missing required fields.');
     }
 
-    /* ---------- Attachment check ---------- */
+    /* =========================================================
+       CHECK IF LEAVE TYPE REQUIRES DOCUMENT
+    ========================================================= */
 
-    $leave_types = get_option('ecco_leave_types', []);
+    $leave_types    = get_option('ecco_leave_types', []);
     $requires_image = false;
 
     foreach ($leave_types as $lt) {
@@ -48,9 +57,35 @@ function ecco_handle_leave_submission() {
 
     $attachment_url = null;
 
-    if ($requires_image && !empty($_FILES['leave_attachment']['tmp_name'])) {
+    /* =========================================================
+       VALIDATE REQUIRED FILE
+    ========================================================= */
+
+    if ($requires_image) {
+
+        if (empty($_FILES['leave_attachment']) ||
+            $_FILES['leave_attachment']['error'] === UPLOAD_ERR_NO_FILE) {
+
+            wp_die(
+                'A supporting document is required for this leave type.',
+                'Missing Supporting Document',
+                ['response' => 400]
+            );
+        }
+
+        if ($_FILES['leave_attachment']['error'] !== UPLOAD_ERR_OK) {
+            wp_die('File upload failed. Please try again.');
+        }
+    }
+
+    /* =========================================================
+       UPLOAD TO SHAREPOINT (IF FILE PROVIDED)
+    ========================================================= */
+
+    if (!empty($_FILES['leave_attachment']['tmp_name'])) {
 
         $file = $_FILES['leave_attachment'];
+
         $contents = file_get_contents($file['tmp_name']);
         if (!$contents) wp_die('Unable to read uploaded file.');
 
@@ -70,7 +105,11 @@ function ecco_handle_leave_submission() {
 
         $path = "{$library}/{$display}/{$month}/" . sanitize_file_name($file['name']);
 
-        $upload = ecco_graph_put("/drives/{$drive_id}/root:/{$path}:/content", $contents, $file['type']);
+        $upload = ecco_graph_put(
+            "/drives/{$drive_id}/root:/{$path}:/content",
+            $contents,
+            $file['type']
+        );
 
         if (!$upload || empty($upload['webUrl'])) {
             wp_die('Failed to upload supporting document.');
@@ -79,11 +118,15 @@ function ecco_handle_leave_submission() {
         $attachment_url = esc_url_raw($upload['webUrl']);
     }
 
-    /* ---------- Manager ---------- */
+    /* =========================================================
+       RESOLVE MANAGER
+    ========================================================= */
 
     $manager = ecco_resolve_effective_manager();
 
-    /* ---------- INSERT INTO ecco_leave_requests ---------- */
+    /* =========================================================
+       INSERT REQUEST
+    ========================================================= */
 
     $table = $wpdb->prefix . 'ecco_leave_requests';
 
@@ -109,26 +152,55 @@ function ecco_handle_leave_submission() {
 
     $request_id = $wpdb->insert_id;
 
-    /* ---------- Notify manager ---------- */
+    /* =========================================================
+       EMAIL MANAGER
+    ========================================================= */
 
     if (!empty($manager['mail'])) {
 
         $dashboard_url = site_url('/leave-dashboard/?request_id=' . $request_id);
 
-        wp_mail(
-            $manager['mail'],
-            'Leave request awaiting approval',
-            "A new leave request has been submitted.\n\n" .
-            "Type: {$leave_type}\n" .
-            "Dates: {$start_date} → {$end_date}\n\n" .
-            "Review: {$dashboard_url}"
-        );
+        $subject = 'Leave request awaiting approval';
+
+        $message = '
+            <p>A new leave request has been submitted.</p>
+
+            <p>
+                <strong>Type:</strong> ' . esc_html($leave_type) . '<br>
+                <strong>Dates:</strong> ' . esc_html($start_date) . ' → ' . esc_html($end_date) . '
+            </p>';
+
+        if (!empty($attachment_url)) {
+            $message .= '
+                <p>
+                    <a href="' . esc_url($attachment_url) . '">
+                        <strong>Supporting Documents</strong>
+                    </a>
+                </p>';
+        }
+
+        $message .= '
+            <p>
+                <a href="' . esc_url($dashboard_url) . '">
+                    <strong>Review Request</strong>
+                </a>
+            </p>';
+
+        $headers = ['Content-Type: text/html; charset=UTF-8'];
+
+        wp_mail($manager['mail'], $subject, $message, $headers);
     }
+
+    /* Redirect back to form */
 
     wp_redirect(add_query_arg('leave_submitted', '1', wp_get_referer()));
     exit;
 }
 
+
+/* =========================================================
+   CALCULATE LEAVE DAYS
+========================================================= */
 
 function ecco_calculate_leave_days($start_date, $end_date) {
 
@@ -140,19 +212,15 @@ function ecco_calculate_leave_days($start_date, $end_date) {
     $end   = new DateTime($end_date);
     $end->modify('+1 day');
 
-    $interval = new DateInterval('P1D');
-    $period = new DatePeriod($start, $interval, $end);
+    $period = new DatePeriod($start, new DateInterval('P1D'), $end);
 
     $days = 0;
 
     foreach ($period as $date) {
 
-        $dayOfWeek = $date->format('N'); // 1=Mon, 7=Sun
+        $dow = $date->format('N');
 
-        /* Skip weekends */
-        if ($dayOfWeek >= 6) continue;
-
-        /* Skip public holidays */
+        if ($dow >= 6) continue;
 
         $holiday = $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $table WHERE holiday_date = %s",
@@ -167,8 +235,9 @@ function ecco_calculate_leave_days($start_date, $end_date) {
     return $days;
 }
 
+
 /* =========================================================
-   APPROVE / REJECT
+   APPROVE / REJECT HANDLERS
 ========================================================= */
 
 function ecco_handle_leave_approve() { ecco_handle_leave_action('approved'); }
@@ -198,18 +267,13 @@ function ecco_handle_leave_action($status) {
     ));
 
     if (!$request) wp_die('Request not found');
-
     if (!ecco_current_user_can_approve_leave($request)) wp_die('Not allowed');
 
-    /* ---------- Update status ---------- */
+    /* Update status */
 
-    $wpdb->update(
-        $requests_table,
-        ['status' => $status],
-        ['id' => $id]
-    );
+    $wpdb->update($requests_table, ['status' => $status], ['id' => $id]);
 
-    /* ---------- Audit ---------- */
+    /* Audit */
 
     $wpdb->insert(
         $audit_table,
@@ -220,19 +284,16 @@ function ecco_handle_leave_action($status) {
             'actor_email'      => wp_get_current_user()->user_email,
             'old_status'       => $request->status,
             'new_status'       => $status,
-            'comment'          => $comment, // FIXED
+            'comment'          => $comment,
             'created_at'       => current_time('mysql')
         ]
     );
 
-    /* ---------- AUTO DEDUCT ON APPROVAL ---------- */
+    /* Deduct balance on approval */
 
     if ($status === 'approved') {
 
-        $days = ecco_calculate_leave_days(
-    $request->start_date,
-    $request->end_date
-);
+        $days = ecco_calculate_leave_days($request->start_date, $request->end_date);
 
         $balance_row = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM $balance_table WHERE user_id = %d AND leave_type = %s",
@@ -259,7 +320,7 @@ function ecco_handle_leave_action($status) {
         }
     }
 
-    /* ---------- Notify employee ---------- */
+    /* Notify employee */
 
     $requester = get_userdata($request->user_id);
 
@@ -274,4 +335,3 @@ function ecco_handle_leave_action($status) {
     wp_redirect(wp_get_referer());
     exit;
 }
-
