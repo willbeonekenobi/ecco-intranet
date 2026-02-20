@@ -1,49 +1,72 @@
 jQuery(function ($) {
 
-    function calculateDays(start, end) {
+    const $type = $('#ecco_leave_type');
+    const $start = $('#ecco_start_date');
+    const $end = $('#ecco_end_date');
+    const $preview = $('#ecco_balance_preview');
 
-        if (!start || !end) return 0;
+    if (!$type.length || !$start.length || !$end.length || !$preview.length) {
+        return;
+    }
 
-        let startDate = new Date(start);
-        let endDate = new Date(end);
-
-        let diff = endDate - startDate;
-        let days = diff / (1000 * 60 * 60 * 24) + 1;
-
-        return days > 0 ? days : 0;
+    function showPreview(text) {
+        $preview.text(text);
     }
 
     function updatePreview() {
 
-        let leaveType = $('#leave_type').val();
-        let startDate = $('#start_date').val();
-        let endDate = $('#end_date').val();
+        const type = $type.val();
+        const startDate = $start.val();
+        const endDate = $end.val();
 
-        if (!leaveType) return;
+        if (!type || !startDate || !endDate) {
+            showPreview('');
+            return;
+        }
 
-        $.post(ecco_ajax.ajax_url, {
-            action: 'ecco_get_leave_balance',
-            leave_type: leaveType
-        }, function (response) {
+        const balance = parseFloat(
+            $type.find(':selected').data('balance') || 0
+        );
 
-            if (!response.success) return;
+        showPreview('Calculating…');
 
-            let current = parseFloat(response.data.balance);
-            let requested = calculateDays(startDate, endDate);
-            let remaining = current - requested;
+        /* ---------------------------------------------------------
+           ASK SERVER TO CALCULATE WORKING DAYS
+           (EXCLUDES weekends + public holidays)
+        --------------------------------------------------------- */
 
-            $('#current_balance').text(current.toFixed(1));
-            $('#requested_days').text(requested);
-            $('#remaining_balance').text(remaining.toFixed(1));
+        $.post(eccoLeavePreview.ajaxUrl, {
+            action: 'ecco_calculate_leave_days_ajax',
+            start_date: startDate,
+            end_date: endDate
+        })
+        .done(function (response) {
+
+            if (!response.success) {
+                showPreview('Unable to calculate days');
+                return;
+            }
+
+            const days = parseFloat(response.data.days) || 0;
+            const remaining = balance - days;
+
+            let text =
+                'Requested: ' + days +
+                ' | Balance: ' + balance +
+                ' | After: ' + remaining;
 
             if (remaining < 0) {
-                $('#remaining_balance').css('color', 'red');
-            } else {
-                $('#remaining_balance').css('color', '');
+                text += ' ⚠ Not enough leave';
             }
+
+            showPreview(text);
+        })
+        .fail(function () {
+            showPreview('Error calculating days');
         });
     }
 
-    $('#leave_type, #start_date, #end_date').on('change', updatePreview);
-
+    $type.on('change', updatePreview);
+    $start.on('change', updatePreview);
+    $end.on('change', updatePreview);
 });

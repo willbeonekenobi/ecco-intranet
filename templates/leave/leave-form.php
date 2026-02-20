@@ -22,7 +22,7 @@ $leave_types = get_option('ecco_leave_types', []);
         <option value="">Select leave type</option>
         <?php foreach ($leave_types as $lt): ?>
             <option value="<?php echo esc_attr($lt['label']); ?>"
-                data-requires-image="<?php echo $lt['requires_image'] ? '1' : '0'; ?>">
+                data-requires-image="<?php echo !empty($lt['requires_image']) ? '1' : '0'; ?>">
                 <?php echo esc_html($lt['label']); ?>
             </option>
         <?php endforeach; ?>
@@ -51,7 +51,7 @@ $leave_types = get_option('ecco_leave_types', []);
             <strong><span id="ecco_current_balance">—</span></strong>
         </p>
 
-        <p>Requested Days:
+        <p>Requested Days (working days):
             <strong><span id="ecco_requested_days">0</span></strong>
         </p>
 
@@ -70,38 +70,30 @@ document.addEventListener('DOMContentLoaded', function () {
     const startDate = document.getElementById('ecco_start_date');
     const endDate = document.getElementById('ecco_end_date');
 
-    // Toggle attachment
     leaveType.addEventListener('change', function () {
+
         const requiresImage = this.options[this.selectedIndex]?.dataset.requiresImage === '1';
-        document.getElementById('ecco_leave_attachment_wrap').style.display = requiresImage ? 'block' : 'none';
+        document.getElementById('ecco_leave_attachment_wrap').style.display =
+            requiresImage ? 'block' : 'none';
+
         updatePreview();
     });
 
     startDate.addEventListener('change', updatePreview);
     endDate.addEventListener('change', updatePreview);
 
-    function calculateDays(start, end) {
-        if (!start || !end) return 0;
-
-        const s = new Date(start);
-        const e = new Date(end);
-
-        const diff = e - s;
-        const days = diff / (1000 * 60 * 60 * 24) + 1;
-
-        return days > 0 ? days : 0;
-    }
-
     function updatePreview() {
 
-        if (!leaveType.value) return;
+        if (!leaveType.value || !startDate.value || !endDate.value) return;
 
         fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
             body: new URLSearchParams({
-                action: 'ecco_get_leave_balance',
-                leave_type: leaveType.value
+                action: 'ecco_get_leave_preview',
+                leave_type: leaveType.value,
+                start_date: startDate.value,
+                end_date: endDate.value
             })
         })
         .then(res => res.json())
@@ -109,16 +101,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
             if (!data.success) return;
 
-            const current = parseFloat(data.data.balance);
-            const requested = calculateDays(startDate.value, endDate.value);
-            const remaining = current - requested;
+            document.getElementById('ecco_current_balance').textContent =
+                data.data.balance.toFixed(1);
 
-            document.getElementById('ecco_current_balance').textContent = current.toFixed(1);
-            document.getElementById('ecco_requested_days').textContent = requested;
-            document.getElementById('ecco_remaining_balance').textContent = remaining.toFixed(1);
+            document.getElementById('ecco_requested_days').textContent =
+                data.data.days;
+
+            document.getElementById('ecco_remaining_balance').textContent =
+                data.data.remaining.toFixed(1);
 
             document.getElementById('ecco_remaining_balance').style.color =
-                remaining < 0 ? 'red' : '';
+                data.data.remaining < 0 ? 'red' : '';
         });
     }
 

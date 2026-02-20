@@ -24,9 +24,13 @@ require_once ECCO_PATH . 'includes/leave/leave-approval-shortcode.php';
 require_once ECCO_PATH . 'includes/leave/leave-dashboard-shortcode.php';
 
 
-/**
- * Enqueue assets ONLY when intranet is rendered
- */
+
+
+
+/* =========================================================
+   ENQUEUE ASSETS
+   ========================================================= */
+
 function ecco_enqueue_assets() {
 
     wp_enqueue_style(
@@ -49,9 +53,13 @@ function ecco_enqueue_assets() {
 }
 
 
-/**
- * Intranet shortcode
- */
+
+
+
+/* =========================================================
+   INTRANET SHORTCODE
+   ========================================================= */
+
 add_shortcode('ecco_intranet', function () {
 
     if (!ecco_is_authenticated()) {
@@ -66,9 +74,13 @@ add_shortcode('ecco_intranet', function () {
 });
 
 
-/**
- * Prevent unauthenticated access to library pages
- */
+
+
+
+/* =========================================================
+   PROTECT LIBRARY PAGES
+   ========================================================= */
+
 add_action('template_redirect', function () {
 
     if (!is_page()) return;
@@ -86,90 +98,76 @@ add_action('template_redirect', function () {
 });
 
 
-/**
- * =========================================================
- * PLUGIN ACTIVATION
- * =========================================================
- */
+
+
+
+/* =========================================================
+   PLUGIN ACTIVATION
+   ========================================================= */
+
 register_activation_hook(__FILE__, 'ecco_intranet_activate');
 
 function ecco_intranet_activate() {
 
-    // Create leave request table
     if (function_exists('ecco_create_leave_table')) {
         ecco_create_leave_table();
     }
 
-    // Create leave balance table
     if (function_exists('ecco_create_leave_balance_table')) {
         ecco_create_leave_balance_table();
     }
-        if (function_exists('ecco_create_public_holidays_table')) {
+
+    if (function_exists('ecco_create_public_holidays_table')) {
         ecco_create_public_holidays_table();
     }
+
+    // Safe schema upgrade
+    if (function_exists('ecco_leave_maybe_upgrade_database')) {
+        ecco_leave_maybe_upgrade_database();
+    }
 }
-    // Upgrade schema safely
-    ecco_leave_maybe_upgrade_database();
 
 
 
-/**
- * =========================================================
- * SAFE DATABASE MIGRATION (COMMERCIAL-GRADE)
- * =========================================================
- */
+
+
+/* =========================================================
+   SAFE DATABASE MIGRATION
+   ========================================================= */
+
 function ecco_leave_maybe_upgrade_database() {
 
     global $wpdb;
 
     $table = $wpdb->prefix . 'ecco_leave_requests';
 
-    // Ensure table exists
     $exists = $wpdb->get_var(
         $wpdb->prepare("SHOW TABLES LIKE %s", $table)
     );
 
     if ($exists !== $table) return;
 
-    // --- requester_comment column ---
-    $column = $wpdb->get_results(
-        "SHOW COLUMNS FROM $table LIKE 'requester_comment'"
-    );
-
-    if (empty($column)) {
-
-        $wpdb->query(
-            "ALTER TABLE $table
-             ADD COLUMN requester_comment TEXT NULL
-             AFTER reason"
-        );
+    if (!$wpdb->get_var("SHOW COLUMNS FROM $table LIKE 'requester_comment'")) {
+        $wpdb->query("ALTER TABLE $table ADD COLUMN requester_comment TEXT NULL AFTER reason");
     }
 
-    // --- created_at column ---
-    $created_col = $wpdb->get_results(
-        "SHOW COLUMNS FROM $table LIKE 'created_at'"
-    );
-
-    if (empty($created_col)) {
-
-        $wpdb->query(
-            "ALTER TABLE $table
-             ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
-        );
+    if (!$wpdb->get_var("SHOW COLUMNS FROM $table LIKE 'created_at'")) {
+        $wpdb->query("ALTER TABLE $table ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP");
     }
 
     update_option('ecco_leave_db_version', '1.1');
 }
 
 
-/**
- * =========================================================
- * MICROSOFT GRAPH HELPERS
- * =========================================================
- */
+
+
+
+/* =========================================================
+   MICROSOFT GRAPH HELPERS
+   ========================================================= */
 
 if (!function_exists('ecco_get_graph_user_profile')) {
-    function ecco_get_graph_user_profile($user_id = null) {
+    function ecco_get_graph_user_profile() {
 
         $me = ecco_graph_get('/me');
         if (!$me) return [];
@@ -186,9 +184,7 @@ if (!function_exists('ecco_get_graph_manager_profile')) {
 
         $manager = ecco_graph_get('/me/manager');
 
-        if (!$manager || isset($manager['error'])) {
-            return null;
-        }
+        if (!$manager || isset($manager['error'])) return null;
 
         return [
             'id'          => $manager['id'] ?? null,
@@ -198,26 +194,10 @@ if (!function_exists('ecco_get_graph_manager_profile')) {
     }
 }
 
-if (!function_exists('ecco_resolve_effective_manager')) {
-    function ecco_resolve_effective_manager() {
-
-        $me = ecco_get_graph_user_profile();
-        $manager = ecco_get_graph_manager_profile();
-
-        if (!$manager || empty($manager['id'])) return null;
-
-        if (!empty($me['id']) && $me['id'] === $manager['id']) return null;
-
-        return $manager;
-    }
-}
-
 if (!function_exists('ecco_current_user_can_approve_leave')) {
     function ecco_current_user_can_approve_leave($request) {
 
         if (current_user_can('manage_options')) return true;
-
-        if (!function_exists('ecco_get_graph_user_profile')) return false;
 
         $me = ecco_get_graph_user_profile();
         $my_email = strtolower(trim($me['mail'] ?? ''));
@@ -227,26 +207,43 @@ if (!function_exists('ecco_current_user_can_approve_leave')) {
             return true;
         }
 
-        if (empty($request->manager_email) &&
-            function_exists('ecco_get_graph_manager_profile')) {
-
-            $manager = ecco_get_graph_manager_profile();
-
-            if (!$manager || empty($manager['mail'])) return true;
-
-            if (strtolower($manager['mail']) === $my_email) return true;
-        }
-
         return false;
     }
 }
 
 
-/**
- * =========================================================
- * TOKEN COOKIE SETUP
- * =========================================================
- */
+/* =========================================================
+   EFFECTIVE MANAGER RESOLUTION (RESTORED)
+   ========================================================= */
+
+if (!function_exists('ecco_resolve_effective_manager')) {
+
+    function ecco_resolve_effective_manager() {
+
+        // Try Microsoft Graph manager first
+        if (function_exists('ecco_get_graph_manager_profile')) {
+
+            $manager = ecco_get_graph_manager_profile();
+
+            if (!empty($manager['mail'])) {
+                return $manager;
+            }
+        }
+
+        // Fallback: no manager found
+        return [
+            'id'          => null,
+            'displayName' => null,
+            'mail'        => null
+        ];
+    }
+}
+
+
+/* =========================================================
+   TOKEN COOKIE SETUP
+   ========================================================= */
+
 add_action('init', function () {
 
     if (is_user_logged_in() && function_exists('ecco_graph_get_token')) {
@@ -260,9 +257,13 @@ add_action('init', function () {
 });
 
 
-/**
- * Ensure leave table exists during runtime (safe fallback)
- */
+
+
+
+/* =========================================================
+   ENSURE TABLE EXISTS (SAFE FALLBACK)
+   ========================================================= */
+
 add_action('init', function () {
 
     if (function_exists('ecco_create_leave_table')) {
@@ -270,37 +271,44 @@ add_action('init', function () {
     }
 });
 
-/* ===== ECCO Leave Balance Preview (Drop-In) ===== */
 
-/* AJAX: Get current user's leave balance */
-add_action('wp_ajax_ecco_get_leave_balance', 'ecco_get_leave_balance');
 
-function ecco_get_leave_balance() {
 
-    if (!is_user_logged_in()) {
-        wp_send_json_error('Not logged in');
-    }
+
+/* =========================================================
+   AJAX — GET LEAVE PREVIEW (CORRECT VERSION)
+   ========================================================= */
+
+add_action('wp_ajax_ecco_get_leave_preview', 'ecco_get_leave_preview');
+
+function ecco_get_leave_preview() {
+
+    if (!is_user_logged_in()) wp_send_json_error();
 
     global $wpdb;
 
-    $user_id = get_current_user_id();
-    $leave_type = sanitize_text_field($_POST['leave_type'] ?? '');
+    $user_id   = get_current_user_id();
+    $leaveType = sanitize_text_field($_POST['leave_type'] ?? '');
+    $start     = sanitize_text_field($_POST['start_date'] ?? '');
+    $end       = sanitize_text_field($_POST['end_date'] ?? '');
 
-    if (!$leave_type) {
-        wp_send_json_error('Missing leave type');
-    }
+    if (!$leaveType || !$start || !$end) wp_send_json_error();
 
-    $table = $wpdb->prefix . 'ecco_leave_balances';
+    $balance_table = $wpdb->prefix . 'ecco_leave_balances';
 
-    $balance = $wpdb->get_var(
-        $wpdb->prepare(
-            "SELECT balance FROM $table WHERE user_id = %d AND leave_type = %s",
-            $user_id,
-            $leave_type
-        )
-    );
+    $balance = (float) $wpdb->get_var($wpdb->prepare(
+        "SELECT balance FROM $balance_table
+         WHERE user_id = %d AND leave_type = %s",
+        $user_id,
+        $leaveType
+    ));
+
+    // IMPORTANT: uses the SAME function as submission logic
+    $days = ecco_calculate_leave_days($start, $end);
 
     wp_send_json_success([
-        'balance' => $balance !== null ? floatval($balance) : 0
+        'balance'   => $balance,
+        'days'      => $days,
+        'remaining' => $balance - $days
     ]);
 }
