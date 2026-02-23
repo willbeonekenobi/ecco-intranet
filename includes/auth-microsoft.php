@@ -12,8 +12,7 @@ function ecco_login_url() {
         'client_id'     => $client,
         'response_type' => 'code',
         'redirect_uri'  => $redirect,
-        'scope'         => 'openid profile email offline_access User.Read Sites.ReadWrite.All Files.ReadWrite.All',
-        'prompt'        => 'consent',
+        'scope'         => 'openid profile email offline_access User.Read Sites.ReadWrite.All Files.ReadWrite.All'
     ]);
 }
 
