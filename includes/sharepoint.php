@@ -12,6 +12,7 @@ function ecco_library_map() {
         'job_cards'      => 'Job cards',
         'maintenance'    => 'Maintenance Reports',
         'hse'            => 'Health & Safety',
+        'logbooks'        => 'LogBooks',
     ];
 }
 

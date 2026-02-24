@@ -20,6 +20,7 @@ add_shortcode('ecco_dashboard', function () {
         'job-cards'           => 'Job Cards',
         'maintenance-reports' => 'Maintenance Reports',
         'health-safety'       => 'Health & Safety',
+        'logbooks'            => 'Logbooks',
     ];
 
     ob_start();

@@ -127,3 +127,4 @@ function ecco_handle_graph_callback() {
     wp_redirect(site_url('/intranet/?connected=1'));
     exit;
 }
+

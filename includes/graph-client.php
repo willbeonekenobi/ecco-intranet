@@ -2,25 +2,36 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * Get access token from cookie (hydrated from DB on init)
+ * Get access token from cookie
  */
 function ecco_graph_get_token_from_cookie() {
-    if (!empty($_COOKIE['ecco_token'])) {
-        return $_COOKIE['ecco_token'];
+
+    if (empty($_COOKIE['ecco_token'])) {
+        error_log('ECCO Graph: No token in cookie');
+        return null;
     }
 
-    error_log('ECCO Graph: No token in cookie');
-    return null;
+    $token = $_COOKIE['ecco_token'];
+
+    // 🚀 Fix: prevent array cookie from breaking Requests
+    if (is_array($token)) {
+        $token = reset($token); // take first value safely
+    }
+
+    if (!is_string($token) || $token === '') {
+        error_log('ECCO Graph: Invalid token format');
+        return null;
+    }
+
+    return $token;
 }
 
 /**
- * GET request to Microsoft Graph
+ * GET request
  */
 function ecco_graph_get($endpoint) {
     $token = ecco_graph_get_token_from_cookie();
-    if (!$token) {
-        return null;
-    }
+    if (!$token) return null;
 
     $response = wp_remote_get(
         'https://graph.microsoft.com/v1.0/' . ltrim($endpoint, '/'),
@@ -38,11 +49,11 @@ function ecco_graph_get($endpoint) {
     }
 
     $code = wp_remote_retrieve_response_code($response);
-    $body = wp_remote_retrieve_body($response);
-    $json = json_decode($body, true);
+    $resp_body = wp_remote_retrieve_body($response);
+    $json = json_decode($resp_body, true);
 
     if ($code >= 400) {
-        error_log('ECCO Graph GET HTTP ' . $code . ': ' . $body);
+        error_log("ECCO Graph GET HTTP {$code}: {$resp_body}");
         return null;
     }
 
@@ -50,12 +61,15 @@ function ecco_graph_get($endpoint) {
 }
 
 /**
- * PUT request (file uploads)
+ * PUT request (file upload)
  */
 function ecco_graph_put($endpoint, $body, $content_type = 'application/octet-stream') {
     $token = ecco_graph_get_token_from_cookie();
-    if (!$token) {
-        return null;
+    if (!$token) return null;
+
+    // Ensure body is string (important fix)
+    if (is_array($body)) {
+        $body = json_encode($body);
     }
 
     $response = wp_remote_request(
@@ -77,11 +91,11 @@ function ecco_graph_put($endpoint, $body, $content_type = 'application/octet-str
     }
 
     $code = wp_remote_retrieve_response_code($response);
-    $body = wp_remote_retrieve_body($response);
-    $json = json_decode($body, true);
+    $resp_body = wp_remote_retrieve_body($response);
+    $json = json_decode($resp_body, true);
 
     if ($code >= 400) {
-        error_log('ECCO Graph PUT HTTP ' . $code . ': ' . $body);
+        error_log("ECCO Graph PUT HTTP {$code}: {$resp_body}");
         return null;
     }
 
@@ -89,13 +103,11 @@ function ecco_graph_put($endpoint, $body, $content_type = 'application/octet-str
 }
 
 /**
- * POST request (folder creation, upload sessions, etc.)
+ * POST request (folder creation, etc.)
  */
 function ecco_graph_post($endpoint, $body = []) {
     $token = ecco_graph_get_token_from_cookie();
-    if (!$token) {
-        return null;
-    }
+    if (!$token) return null;
 
     $response = wp_remote_post(
         'https://graph.microsoft.com/v1.0/' . ltrim($endpoint, '/'),
@@ -115,11 +127,11 @@ function ecco_graph_post($endpoint, $body = []) {
     }
 
     $code = wp_remote_retrieve_response_code($response);
-    $body = wp_remote_retrieve_body($response);
-    $json = json_decode($body, true);
+    $resp_body = wp_remote_retrieve_body($response);
+    $json = json_decode($resp_body, true);
 
     if ($code >= 400) {
-        error_log('ECCO Graph POST HTTP ' . $code . ': ' . $body);
+        error_log("ECCO Graph POST HTTP {$code}: {$resp_body}");
         return null;
     }
 
@@ -127,8 +139,7 @@ function ecco_graph_post($endpoint, $body = []) {
 }
 
 /**
- * Ensure SharePoint folder path exists (real folders)
- * Example: Leave-Documents/john-doe/2026-02
+ * Ensure folder path exists
  */
 function ecco_graph_ensure_folder($path) {
 
@@ -137,20 +148,23 @@ function ecco_graph_ensure_folder($path) {
 
     foreach ($parts as $folder) {
 
-        // Look for existing folder
-        $existing = ecco_graph_get("/me/drive/items/{$parent_id}/children?\$filter=name eq '" . rawurlencode($folder) . "'");
+        $existing = ecco_graph_get(
+            "/me/drive/items/{$parent_id}/children?\$filter=name eq '{$folder}'"
+        );
 
         if (!empty($existing['value'][0]['id'])) {
             $parent_id = $existing['value'][0]['id'];
             continue;
         }
 
-        // Create folder
-        $created = ecco_graph_post("/me/drive/items/{$parent_id}/children", [
-            'name'   => $folder,
-            'folder' => new stdClass(),
-            '@microsoft.graph.conflictBehavior' => 'fail'
-        ]);
+        $created = ecco_graph_post(
+            "/me/drive/items/{$parent_id}/children",
+            [
+                'name'   => $folder,
+                'folder' => new stdClass(),
+                '@microsoft.graph.conflictBehavior' => 'fail'
+            ]
+        );
 
         if (empty($created['id'])) {
             error_log('ECCO folder create failed: ' . print_r($created, true));
@@ -162,4 +176,3 @@ function ecco_graph_ensure_folder($path) {
 
     return true;
 }
-

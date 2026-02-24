@@ -19,6 +19,8 @@ require_once ECCO_PATH . 'includes/admin-settings.php';
 require_once ECCO_PATH . 'includes/shortcodes.php';
 require_once ECCO_PATH . 'includes/shortcodes-dashboard.php';
 require_once ECCO_PATH . 'includes/leave-shortcode.php';
+require_once ECCO_PATH . 'includes/logbooks-status-shortcode.php';
+require_once ECCO_PATH . 'includes/logbooks-module.php';
 require_once ECCO_PATH . 'includes/leave/leave-loader.php';
 require_once ECCO_PATH . 'includes/leave/leave-approval-shortcode.php';
 require_once ECCO_PATH . 'includes/leave/leave-dashboard-shortcode.php';
@@ -312,3 +314,8 @@ function ecco_get_leave_preview() {
         'remaining' => $balance - $days
     ]);
 }
+
+add_action('http_api_debug', function($response, $context, $class, $args, $url) {
+    error_log('HTTP DEBUG URL: ' . $url);
+    error_log(print_r($args, true));
+}, 10, 5);
