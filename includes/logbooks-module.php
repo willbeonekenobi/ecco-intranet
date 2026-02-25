@@ -4,9 +4,6 @@ if (!defined('ABSPATH')) exit;
 /*
 =====================================================
  LOGBOOKS MODULE — Monthly Excel Logbooks
- Shortcodes:
-   [ecco_logbook_upload]
-   [ecco_logbook_status]
 =====================================================
 */
 
@@ -17,9 +14,7 @@ if (!defined('ABSPATH')) exit;
 
 add_shortcode('ecco_logbook_upload', function () {
 
-    if (!is_user_logged_in()) {
-        return '<p>Please log in.</p>';
-    }
+    if (!is_user_logged_in()) return '<p>Please log in.</p>';
 
     $month = date('Y-m');
 
@@ -77,9 +72,7 @@ function ecco_handle_logbook_upload() {
     $name  = $user->display_name;
     $month = date('Y-m');
 
-    $tmp  = $_FILES['logbook_file']['tmp_name'];
-    $data = file_get_contents($tmp);
-
+    $data = file_get_contents($_FILES['logbook_file']['tmp_name']);
     $path = "$month/$name/logbook.xlsx";
 
     ecco_graph_put(
@@ -103,7 +96,8 @@ add_shortcode('ecco_logbook_status', function () {
         return '<p>You do not have permission.</p>';
     }
 
-    /* ---------- HANDLE REMINDER SEND ---------- */
+
+    /* ---------- HANDLE REMINDER ---------- */
 
     if (isset($_POST['ecco_send_reminder'])) {
 
@@ -111,15 +105,45 @@ add_shortcode('ecco_logbook_status', function () {
             echo "<p>Security check failed.</p>";
         } else {
 
-            $employeeName = sanitize_text_field($_POST['employee_name']);
-            $month        = sanitize_text_field($_POST['month']);
+            $employeeId   = intval($_POST['employee_id'] ?? 0);
+            $employeeName = trim($_POST['employee_name'] ?? '');
+            $month        = sanitize_text_field($_POST['month'] ?? date('Y-m'));
 
-            // Attempt to find WP user by display name
-            $user = get_user_by('slug', sanitize_title($employeeName));
+            $user = false;
 
-            if (!$user) {
-                $user = get_user_by('email', $employeeName);
+            /* ⭐ 1. Try ID (best method) */
+            if ($employeeId > 0) {
+                $user = get_user_by('id', $employeeId);
             }
+
+            /* ⭐ 2. Try exact display name match */
+            if (!$user && $employeeName !== '') {
+
+                $users = get_users([
+                    'meta_key'   => 'display_name',
+                    'meta_value' => $employeeName,
+                    'number'     => 1
+                ]);
+
+                if (!empty($users)) {
+                    $user = $users[0];
+                }
+            }
+
+            /* ⭐ 3. Search all users by display name */
+            if (!$user && $employeeName !== '') {
+
+                $users = get_users();
+
+                foreach ($users as $u) {
+                    if ($u->display_name === $employeeName) {
+                        $user = $u;
+                        break;
+                    }
+                }
+            }
+
+            /* ---------- SEND EMAIL ---------- */
 
             if ($user && !empty($user->user_email)) {
 
@@ -128,7 +152,7 @@ add_shortcode('ecco_logbook_status', function () {
                 $subject = "URGENT: Logbook Overdue — $month";
 
                 $message = "
-Dear $employeeName,
+Dear {$user->display_name},
 
 Your monthly logbook for $month has not been submitted.
 
@@ -140,13 +164,17 @@ Regards,
 Management
 ";
 
-                wp_mail($to, $subject, $message);
+                $sent = wp_mail($to, $subject, $message);
 
-                echo "<p style='color:green'><strong>Reminder sent to $employeeName.</strong></p>";
+                if ($sent) {
+                    echo "<p style='color:green'><strong>Reminder sent to {$user->display_name}.</strong></p>";
+                } else {
+                    echo "<p style='color:red'>Mail failed to send.</p>";
+                }
 
             } else {
 
-                echo "<p style='color:red'>Could not determine email for $employeeName.</p>";
+                echo "<p style='color:red'>Could not determine email for {$employeeName}.</p>";
             }
         }
     }
@@ -157,15 +185,11 @@ Management
     $driveMap = ecco_get_drive_map();
     $driveId  = $driveMap['logbooks'];
 
-    $month = isset($_GET['month'])
-        ? sanitize_text_field($_GET['month'])
-        : date('Y-m');
+    $month = sanitize_text_field($_GET['month'] ?? date('Y-m'));
 
     $employees = ecco_get_all_employees();
 
-    $res = ecco_graph_get(
-        "drives/$driveId/root:/$month:/children"
-    );
+    $res = ecco_graph_get("drives/$driveId/root:/$month:/children");
 
     $folders = [];
 
@@ -204,16 +228,16 @@ Management
 
     foreach ($employees as $emp) {
 
-        $name = $emp['name'];
-        $key  = strtolower($name);
+        $name = $emp['name'] ?? '';
+        $id   = $emp['id'] ?? 0;
+
+        $key = strtolower($name);
 
         /* ---------- UPLOADED ---------- */
 
         if (isset($folders[$key])) {
 
-            $sub = ecco_graph_get(
-                "drives/$driveId/root:/$month/$name:/children"
-            );
+            $sub = ecco_graph_get("drives/$driveId/root:/$month/$name:/children");
 
             if (!empty($sub['value'])) {
 
@@ -239,11 +263,11 @@ Management
         echo "<td>–</td>";
         echo "<td>–</td>";
         echo "<td>";
-
         ?>
 
         <form method="post" style="margin:0;">
             <?php wp_nonce_field('ecco_send_reminder'); ?>
+            <input type="hidden" name="employee_id" value="<?php echo esc_attr($id); ?>">
             <input type="hidden" name="employee_name" value="<?php echo esc_attr($name); ?>">
             <input type="hidden" name="month" value="<?php echo esc_attr($month); ?>">
             <button type="submit" name="ecco_send_reminder">
@@ -252,11 +276,9 @@ Management
         </form>
 
         <?php
-
         echo "</td>";
         echo "</tr>";
     }
-
     ?>
 
         </tbody>
