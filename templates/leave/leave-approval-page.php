@@ -1,45 +1,79 @@
 <?php
-if (!is_user_logged_in()) {
-    echo '<p>Please log in to approve this leave request.</p>';
+if (!defined('ABSPATH')) exit;
+
+if (!ecco_user_is_manager()) {
+    echo "<p>You do not have permission.</p>";
     return;
 }
 
-$me = function_exists('ecco_get_graph_user_profile') ? ecco_get_graph_user_profile() : [];
-$my_email = strtolower(trim($me['mail'] ?? ''));
+$employee = sanitize_text_field($_GET['employee'] ?? '');
+$email    = sanitize_email($_GET['email'] ?? '');
+$start    = sanitize_text_field($_GET['start'] ?? '');
+$end      = sanitize_text_field($_GET['end'] ?? '');
 
-$requester = get_userdata($request->user_id);
-$requester_name = $requester ? $requester->display_name : 'Unknown';
-$requester_email = $requester ? $requester->user_email : '';
+if (!$employee || !$email) {
+    echo "<p>Invalid request.</p>";
+    return;
+}
+
+/* ================================
+   HANDLE ACTION
+================================ */
+
+if (isset($_POST['leave_action'])) {
+
+    if (!wp_verify_nonce($_POST['_wpnonce'], 'ecco_leave_action')) {
+        echo "<p>Security check failed.</p>";
+        return;
+    }
+
+    $action = sanitize_text_field($_POST['leave_action']);
+
+    if ($action === 'approve') {
+        $status = 'APPROVED';
+    } elseif ($action === 'reject') {
+        $status = 'REJECTED';
+    } else {
+        return;
+    }
+
+    /* ================================
+       ✉️ EMAIL EMPLOYEE
+    ================================= */
+
+    $subject = "Your Leave Request — {$status}";
+
+    $message = "
+Dear {$employee},
+
+Your leave request has been {$status}.
+
+Start: {$start}
+End: {$end}
+
+Regards,
+Management
+";
+
+    wp_mail($email, $subject, $message);
+
+    echo "<p style='color:green'><strong>Leave {$status}.</strong></p>";
+}
 
 ?>
 
-<h2>Leave Request Approval</h2>
-<?php
-$requester = get_userdata($request->user_id);
-$requester_name = $requester ? $requester->display_name : 'Unknown';
-$requester_email = $requester ? $requester->user_email : '';
-?>
-<p><strong>Employee:</strong> <?php echo esc_html($requester_name); ?> (<?php echo esc_html($requester_email); ?>)</p>
-<p><strong>Type:</strong> <?php echo esc_html($request->leave_type); ?></p>
-<p><strong>Dates:</strong> <?php echo esc_html($request->start_date . ' → ' . $request->end_date); ?></p>
-<p><strong>Reason:</strong><br><?php echo nl2br(esc_html($request->reason)); ?></p>
-<p><strong>Status:</strong> <?php echo esc_html($request->status); ?></p>
+<h3>Leave Request — <?php echo esc_html($employee); ?></h3>
 
-<?php if (function_exists('ecco_current_user_can_approve_leave') && ecco_current_user_can_approve_leave($request)) : ?>
+<p><strong>Dates:</strong> <?php echo esc_html("$start → $end"); ?></p>
 
-<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-    <?php wp_nonce_field('ecco_leave_action_' . $request->id); ?>
-    <input type="hidden" name="request_id" value="<?php echo esc_attr($request->id); ?>">
+<form method="post">
+    <?php wp_nonce_field('ecco_leave_action'); ?>
 
-    <p>
-        <label>Manager Comment (required)</label><br>
-        <textarea name="manager_comment" required style="width:100%; min-height:120px;"></textarea>
-    </p>
+    <button name="leave_action" value="approve">
+        Approve
+    </button>
 
-    <button name="action" value="ecco_leave_approve" class="button button-primary">Approve</button>
-    <button name="action" value="ecco_leave_reject" class="button">Reject</button>
+    <button name="leave_action" value="reject">
+        Reject
+    </button>
 </form>
-
-<?php else: ?>
-<p>You are not authorized to approve or reject this leave request.</p>
-<?php endif; ?>

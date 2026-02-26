@@ -16,9 +16,6 @@ add_action('admin_post_nopriv_ecco_submit_leave', 'ecco_handle_leave_submission'
 add_action('admin_post_ecco_leave_approve', 'ecco_handle_leave_approve');
 add_action('admin_post_ecco_leave_reject',  'ecco_handle_leave_reject');
 
-/* ⭐ Inject holidays + preview JS into frontend */
-add_action('wp_footer', 'ecco_leave_preview_script');
-
 
 /* =========================================================
    SUBMIT LEAVE REQUEST
@@ -31,6 +28,8 @@ function ecco_handle_leave_submission() {
 
     global $wpdb;
 
+    /* ---------- Form Data ---------- */
+
     $user_id           = get_current_user_id();
     $leave_type        = sanitize_text_field($_POST['leave_type'] ?? '');
     $reason            = sanitize_textarea_field($_POST['reason'] ?? '');
@@ -42,38 +41,96 @@ function ecco_handle_leave_submission() {
         wp_die('Missing required fields.');
     }
 
-    /* ⭐ CALCULATE WORKING DAYS */
-    $days = ecco_calculate_leave_days($start_date, $end_date);
+    /* =========================================================
+       CHECK IF LEAVE TYPE REQUIRES DOCUMENT
+    ========================================================= */
 
-    /* ⭐ CHECK BALANCE */
-    $balance_table = $wpdb->prefix . 'ecco_leave_balances';
+    $leave_types    = get_option('ecco_leave_types', []);
+    $requires_image = false;
 
-    $balance_row = $wpdb->get_row($wpdb->prepare(
-        "SELECT balance FROM $balance_table
-         WHERE user_id = %d AND leave_type = %s",
-        $user_id,
-        $leave_type
-    ));
-
-    $balance = $balance_row ? (float)$balance_row->balance : 0;
-
-    if ($balance < $days) {
-        wp_die(
-            "<h2>Insufficient Leave Balance</h2>
-             <p>You requested <strong>$days</strong> working day(s).</p>
-             <p>Your balance for <strong>$leave_type</strong> is <strong>$balance</strong>.</p>
-             <p><a href='javascript:history.back()'>Go back</a></p>",
-            'Leave Request Error',
-            ['response' => 200]
-        );
+    foreach ($leave_types as $lt) {
+        if (($lt['label'] ?? '') === $leave_type) {
+            $requires_image = !empty($lt['requires_image']);
+            break;
+        }
     }
 
-    /* INSERT REQUEST */
+    $attachment_url = null;
+
+    /* =========================================================
+       VALIDATE REQUIRED FILE
+    ========================================================= */
+
+    if ($requires_image) {
+
+        if (empty($_FILES['leave_attachment']) ||
+            $_FILES['leave_attachment']['error'] === UPLOAD_ERR_NO_FILE) {
+
+            wp_die(
+                'A supporting document is required for this leave type.',
+                'Missing Supporting Document',
+                ['response' => 400]
+            );
+        }
+
+        if ($_FILES['leave_attachment']['error'] !== UPLOAD_ERR_OK) {
+            wp_die('File upload failed. Please try again.');
+        }
+    }
+
+    /* =========================================================
+       UPLOAD TO SHAREPOINT (IF FILE PROVIDED)
+    ========================================================= */
+
+    if (!empty($_FILES['leave_attachment']['tmp_name'])) {
+
+        $file = $_FILES['leave_attachment'];
+
+        $contents = file_get_contents($file['tmp_name']);
+        if (!$contents) wp_die('Unable to read uploaded file.');
+
+        $me = ecco_get_graph_user_profile();
+        if (!$me) wp_die('Unable to resolve Microsoft profile.');
+
+        $display = sanitize_title($me['displayName']);
+        $month   = date('Y-m');
+        $library = 'Leave-Documents';
+
+        if (function_exists('ecco_graph_ensure_folder')) {
+            ecco_graph_ensure_folder("{$library}/{$display}/{$month}");
+        }
+
+        $drive_id = get_option('ecco_leave_drive_id');
+        if (!$drive_id) wp_die('Leave document library not configured.');
+
+        $path = "{$library}/{$display}/{$month}/" . sanitize_file_name($file['name']);
+
+        $upload = ecco_graph_put(
+            "/drives/{$drive_id}/root:/{$path}:/content",
+            $contents,
+            $file['type']
+        );
+
+        if (!$upload || empty($upload['webUrl'])) {
+            wp_die('Failed to upload supporting document.');
+        }
+
+        $attachment_url = esc_url_raw($upload['webUrl']);
+    }
+
+    /* =========================================================
+       RESOLVE MANAGER
+    ========================================================= */
 
     $manager = ecco_resolve_effective_manager();
-    $table   = $wpdb->prefix . 'ecco_leave_requests';
 
-    $wpdb->insert(
+    /* =========================================================
+       INSERT REQUEST
+    ========================================================= */
+
+    $table = $wpdb->prefix . 'ecco_leave_requests';
+
+    $inserted = $wpdb->insert(
         $table,
         [
             'user_id'           => $user_id,
@@ -84,9 +141,57 @@ function ecco_handle_leave_submission() {
             'requester_comment' => $requester_comment,
             'manager_email'     => $manager['mail'] ?? null,
             'status'            => 'pending',
+            'attachment_url'    => $attachment_url,
             'created_at'        => current_time('mysql')
         ]
     );
+
+    if ($inserted === false) {
+        wp_die('Database insert failed: ' . $wpdb->last_error);
+    }
+
+    $request_id = $wpdb->insert_id;
+
+    /* =========================================================
+       EMAIL MANAGER
+    ========================================================= */
+
+    if (!empty($manager['mail'])) {
+
+        $dashboard_url = site_url('/leave-dashboard/?request_id=' . $request_id);
+
+        $subject = 'Leave request awaiting approval';
+
+        $message = '
+            <p>A new leave request has been submitted.</p>
+
+            <p>
+                <strong>Type:</strong> ' . esc_html($leave_type) . '<br>
+                <strong>Dates:</strong> ' . esc_html($start_date) . ' → ' . esc_html($end_date) . '
+            </p>';
+
+        if (!empty($attachment_url)) {
+            $message .= '
+                <p>
+                    <a href="' . esc_url($attachment_url) . '">
+                        <strong>Supporting Documents</strong>
+                    </a>
+                </p>';
+        }
+
+        $message .= '
+            <p>
+                <a href="' . esc_url($dashboard_url) . '">
+                    <strong>Review Request</strong>
+                </a>
+            </p>';
+
+        $headers = ['Content-Type: text/html; charset=UTF-8'];
+
+        wp_mail($manager['mail'], $subject, $message, $headers);
+    }
+
+    /* Redirect back to form */
 
     wp_redirect(add_query_arg('leave_submitted', '1', wp_get_referer()));
     exit;
@@ -94,7 +199,7 @@ function ecco_handle_leave_submission() {
 
 
 /* =========================================================
-   ⭐ WORKING DAYS CALCULATION (BACKEND)
+   CALCULATE LEAVE DAYS
 ========================================================= */
 
 function ecco_calculate_leave_days($start_date, $end_date) {
@@ -102,12 +207,6 @@ function ecco_calculate_leave_days($start_date, $end_date) {
     global $wpdb;
 
     $table = $wpdb->prefix . 'ecco_public_holidays';
-
-    $holiday_dates = $wpdb->get_col(
-        "SELECT holiday_date FROM $table"
-    );
-
-    $holiday_lookup = array_flip(array_map('trim', $holiday_dates));
 
     $start = new DateTime($start_date);
     $end   = new DateTime($end_date);
@@ -119,100 +218,21 @@ function ecco_calculate_leave_days($start_date, $end_date) {
 
     foreach ($period as $date) {
 
-        $dow = $date->format('N'); // 6,7 = weekend
+        $dow = $date->format('N');
+
         if ($dow >= 6) continue;
 
-        $current = $date->format('Y-m-d');
+        $holiday = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table WHERE holiday_date = %s",
+            $date->format('Y-m-d')
+        ));
 
-        if (isset($holiday_lookup[$current])) continue;
+        if ($holiday) continue;
 
         $days++;
     }
 
     return $days;
-}
-
-
-/* =========================================================
-   ⭐ FRONTEND PREVIEW SCRIPT (REAL FIX)
-========================================================= */
-
-function ecco_leave_preview_script() {
-
-    global $wpdb;
-
-    $table = $wpdb->prefix . 'ecco_public_holidays';
-    $holidays = $wpdb->get_col("SELECT holiday_date FROM $table");
-
-    ?>
-
-<script>
-window.eccoPublicHolidays = <?php echo json_encode($holidays); ?>;
-
-document.addEventListener('DOMContentLoaded', function () {
-
-    const startInput = document.getElementById('start_date');
-    const endInput   = document.getElementById('end_date');
-    const typeSelect = document.getElementById('ecco_leave_type');
-    const previewBox = document.getElementById('leave_balance_preview');
-
-    if (!startInput || !endInput || !typeSelect || !previewBox) return;
-
-    function workingDays(start, end) {
-
-        let current = new Date(start);
-        const last  = new Date(end);
-        let days = 0;
-
-        while (current <= last) {
-
-            const day = current.getDay();
-
-            const yyyy = current.getFullYear();
-            const mm   = String(current.getMonth()+1).padStart(2,'0');
-            const dd   = String(current.getDate()).padStart(2,'0');
-
-            const dateStr = `${yyyy}-${mm}-${dd}`;
-
-            if (day !== 0 && day !== 6 &&
-                !window.eccoPublicHolidays.includes(dateStr)) {
-
-                days++;
-            }
-
-            current.setDate(current.getDate()+1);
-        }
-
-        return days;
-    }
-
-    function updatePreview() {
-
-        const start = startInput.value;
-        const end   = endInput.value;
-
-        if (!start || !end) {
-            previewBox.textContent = '— days';
-            return;
-        }
-
-        const requested = workingDays(start, end);
-
-        const option = typeSelect.options[typeSelect.selectedIndex];
-        const balance = parseFloat(option.dataset.balance || 0);
-
-        previewBox.textContent =
-            `${requested} working day(s) — Balance after: ${balance - requested}`;
-    }
-
-    startInput.addEventListener('change', updatePreview);
-    endInput.addEventListener('change', updatePreview);
-    typeSelect.addEventListener('change', updatePreview);
-
-});
-</script>
-
-<?php
 }
 
 
@@ -249,7 +269,11 @@ function ecco_handle_leave_action($status) {
     if (!$request) wp_die('Request not found');
     if (!ecco_current_user_can_approve_leave($request)) wp_die('Not allowed');
 
+    /* Update status */
+
     $wpdb->update($requests_table, ['status' => $status], ['id' => $id]);
+
+    /* Audit */
 
     $wpdb->insert(
         $audit_table,
@@ -265,13 +289,14 @@ function ecco_handle_leave_action($status) {
         ]
     );
 
+    /* Deduct balance on approval */
+
     if ($status === 'approved') {
 
         $days = ecco_calculate_leave_days($request->start_date, $request->end_date);
 
         $balance_row = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM $balance_table
-             WHERE user_id = %d AND leave_type = %s",
+            "SELECT * FROM $balance_table WHERE user_id = %d AND leave_type = %s",
             $request->user_id,
             $request->leave_type
         ));
@@ -280,7 +305,9 @@ function ecco_handle_leave_action($status) {
 
             $new_balance = $balance_row->balance - $days;
 
-            if ($new_balance < 0) wp_die('Insufficient leave balance.');
+            if ($new_balance < 0) {
+                wp_die('Insufficient leave balance.');
+            }
 
             $wpdb->update(
                 $balance_table,
@@ -293,24 +320,18 @@ function ecco_handle_leave_action($status) {
         }
     }
 
+    /* Notify employee */
+
+    $requester = get_userdata($request->user_id);
+
+    if ($requester) {
+        wp_mail(
+            $requester->user_email,
+            "Your leave request was {$status}",
+            "Manager comment:\n{$comment}"
+        );
+    }
+
     wp_redirect(wp_get_referer());
     exit;
 }
-
-add_action('wp_ajax_ecco_calculate_leave_days_ajax', function () {
-
-    if (!is_user_logged_in()) {
-        wp_send_json_error('Not logged in');
-    }
-
-    $start = sanitize_text_field($_POST['start_date'] ?? '');
-    $end   = sanitize_text_field($_POST['end_date'] ?? '');
-
-    if (!$start || !$end) {
-        wp_send_json_error('Missing dates');
-    }
-
-    $days = ecco_calculate_leave_days($start, $end);
-
-    wp_send_json_success(['days' => $days]);
-});
