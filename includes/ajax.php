@@ -6,6 +6,22 @@ if (!defined('ABSPATH')) {
 }
 
 /**
+ * Helper: get drive map with auto-refresh if needed
+ */
+function ecco_get_drive_map_safe($library) {
+
+    $drives = ecco_get_drive_map();
+
+    // If library not found, try refreshing cache once
+    if (empty($drives[$library])) {
+        $drives = ecco_get_drive_map(true);
+    }
+
+    return $drives;
+}
+
+
+/**
  * List files / folders (WITH DATE FIELDS)
  */
 add_action('wp_ajax_ecco_list_docs', function () {
@@ -17,12 +33,13 @@ add_action('wp_ajax_ecco_list_docs', function () {
     $library = sanitize_text_field($_POST['library']);
     $folder  = !empty($_POST['folder']) ? sanitize_text_field($_POST['folder']) : null;
 
-    $drives = ecco_get_drive_map();
+    $drives = ecco_get_drive_map_safe($library);
+
     if (empty($drives[$library])) {
         wp_send_json_error('Invalid library');
     }
 
-    // 🔥 Explicitly request date fields from Graph
+    // Explicitly request date fields from Graph
     $select = '?$select=id,name,webUrl,folder,file,createdDateTime,lastModifiedDateTime,fileSystemInfo';
 
     $endpoint = $folder
@@ -54,7 +71,8 @@ add_action('wp_ajax_ecco_upload_session', function () {
         $conflict = 'rename';
     }
 
-    $drives = ecco_get_drive_map();
+    $drives = ecco_get_drive_map_safe($library);
+
     if (empty($drives[$library])) {
         wp_send_json_error('Invalid library');
     }
@@ -93,43 +111,8 @@ add_action('wp_ajax_ecco_file_exists', function () {
     $filename = trim(wp_unslash($_POST['filename']));
     $folder   = !empty($_POST['folder']) ? sanitize_text_field($_POST['folder']) : null;
 
-    $drives = ecco_get_drive_map();
-    if (empty($drives[$library])) {
-        wp_send_json_error('Invalid library');
-    }
+    $drives = ecco_get_drive_map_safe($library);
 
-    $endpoint = $folder
-        ? "drives/{$drives[$library]}/items/{$folder}:/$filename"
-        : "drives/{$drives[$library]}/root:/$filename";
-
-    $file = ecco_graph_get($endpoint);
-
-    if (!empty($file['id'])) {
-        wp_send_json_success([
-            'exists'        => true,
-            'size'          => $file['size'] ?? 0,
-            'lastModified'  => $file['lastModifiedDateTime'] ?? null,
-        ]);
-    }
-
-    wp_send_json_success([
-        'exists' => false,
-    ]);
-});
-/**
- * Check if file exists + metadata
- */
-add_action('wp_ajax_ecco_file_exists', function () {
-
-    if (empty($_POST['library']) || empty($_POST['filename'])) {
-        wp_send_json_error('Missing parameters');
-    }
-
-    $library  = sanitize_text_field($_POST['library']);
-    $filename = trim(wp_unslash($_POST['filename']));
-    $folder   = !empty($_POST['folder']) ? sanitize_text_field($_POST['folder']) : null;
-
-    $drives = ecco_get_drive_map();
     if (empty($drives[$library])) {
         wp_send_json_error('Invalid library');
     }

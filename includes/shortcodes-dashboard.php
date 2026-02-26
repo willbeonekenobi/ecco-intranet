@@ -21,6 +21,7 @@ add_shortcode('ecco_dashboard', function () {
         'maintenance-reports' => 'Maintenance Reports',
         'health-safety'       => 'Health & Safety',
         'logbooks'            => 'LogBooks',
+        'projectboards'       => 'Project boards',
     ];
 
     ob_start();

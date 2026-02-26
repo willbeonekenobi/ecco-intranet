@@ -13,6 +13,7 @@ function ecco_library_map() {
         'maintenance'    => 'Maintenance Reports',
         'hse'            => 'Health & Safety',
         'logbooks'        => 'LogBooks',
+        'projectboards'  => 'Project Boards',
     ];
 }
 
@@ -36,9 +37,12 @@ function ecco_get_site_id() {
 /**
  * Discover document libraries (drives) and map by name
  */
-function ecco_get_drive_map() {
-    $cached = get_option('ecco_drive_map');
-    if ($cached) return $cached;
+function ecco_get_drive_map($force_refresh = false) {
+
+    if (!$force_refresh) {
+        $cached = get_option('ecco_drive_map');
+        if ($cached) return $cached;
+    }
 
     $siteId = ecco_get_site_id();
     if (!$siteId) return null;
