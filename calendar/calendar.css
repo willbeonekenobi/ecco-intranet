@@ -1,0 +1,9 @@
+#ecco-calendar-wrapper {
+    max-width: 1200px;
+    margin: auto;
+}
+
+#ecco-group-selector {
+    margin-bottom: 20px;
+    padding: 6px;
+}

@@ -24,6 +24,8 @@ require_once ECCO_PATH . 'includes/logbooks-module.php';
 require_once ECCO_PATH . 'includes/leave/leave-loader.php';
 require_once ECCO_PATH . 'includes/leave/leave-approval-shortcode.php';
 require_once ECCO_PATH . 'includes/leave/leave-dashboard-shortcode.php';
+require_once ECCO_PATH . 'calendar/calendar-page.php';
+require_once ECCO_PATH . 'calendar/calendar-ajax.php';
 
 
 
@@ -54,7 +56,25 @@ function ecco_enqueue_assets() {
     ]);
 }
 
+function ecco_calendar_assets() {
+    wp_enqueue_script('fullcalendar-js', 
+        'https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js',
+        [], null, true
+    );
 
+    wp_enqueue_script(
+        'ecco-calendar-js',
+        plugin_dir_url(__FILE__) . 'calendar/calendar.js',
+        ['jquery', 'fullcalendar-js'],
+        null, true
+    );
+
+    wp_enqueue_style(
+        'ecco-calendar-css',
+        plugin_dir_url(__FILE__) . 'calendar/calendar.css'
+    );
+}
+add_action('wp_enqueue_scripts', 'ecco_calendar_assets');
 
 
 
