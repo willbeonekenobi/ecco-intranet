@@ -4,11 +4,12 @@ if (!defined('ABSPATH')) exit;
 function ecco_render_group_calendar_page() {
     ob_start();
     ?>
+
     <div id="ecco-calendar-wrapper">
         <h2>Group Calendar</h2>
 
         <select id="ecco-group-selector">
-            <option value="">Select Group</option>
+            <option value="">Loading groups...</option>
         </select>
 
         <div id="ecco-calendar"></div>

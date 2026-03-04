@@ -1,80 +1,83 @@
-document.addEventListener('DOMContentLoaded', function() {
+jQuery(document).ready(function ($) {
 
-    let calendarEl = document.getElementById('ecco-calendar');
+    console.log('ECCO Calendar JS Loaded');
 
-    let calendar = new FullCalendar.Calendar(calendarEl, {
+    const select = $('#ecco-group-selector');
+    const calendarEl = document.getElementById('ecco-calendar');
+
+    if (!select.length || !calendarEl) {
+        console.error('Calendar elements missing');
+        return;
+    }
+
+    // 🔹 Initialize FullCalendar
+    const calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
-        editable: true,
-        selectable: true,
-
-        events: function(fetchInfo, successCallback) {
-            let groupId = document.getElementById('ecco-group-selector').value;
-            if (!groupId) return;
-
-            jQuery.post(ajaxurl, {
-                action: 'ecco_get_events',
-                group_id: groupId
-            }, function(data) {
-
-                let events = data.map(e => ({
-                    id: e.id,
-                    title: e.subject,
-                    start: e.start.dateTime,
-                    end: e.end.dateTime
-                }));
-
-                successCallback(events);
-            });
-        },
-
-        select: function(info) {
-            let title = prompt("Event Title");
-            if (!title) return;
-
-            let groupId = document.getElementById('ecco-group-selector').value;
-
-            let eventData = {
-                subject: title,
-                start: { dateTime: info.startStr, timeZone: "UTC" },
-                end:   { dateTime: info.endStr,   timeZone: "UTC" }
-            };
-
-            jQuery.post(ajaxurl, {
-                action: 'ecco_save_event',
-                group_id: groupId,
-                event_data: JSON.stringify(eventData)
-            }, function() {
-                calendar.refetchEvents();
-            });
-        },
-
-        eventClick: function(info) {
-            if (confirm("Delete event?")) {
-                let groupId = document.getElementById('ecco-group-selector').value;
-
-                jQuery.post(ajaxurl, {
-                    action: 'ecco_delete_event',
-                    group_id: groupId,
-                    event_id: info.event.id
-                }, function() {
-                    calendar.refetchEvents();
-                });
-            }
-        }
+        height: 650,
+        events: [] // empty initially
     });
 
     calendar.render();
 
-    jQuery.post(ajaxurl, { action: 'ecco_get_groups' }, function(data) {
-        let selector = document.getElementById('ecco-group-selector');
-        data.forEach(g => {
-            let opt = document.createElement('option');
-            opt.value = g.id;
-            opt.text  = g.displayName;
-            selector.appendChild(opt);
-        });
+    // 🔹 Load Groups
+    $.ajax({
+        url: eccoCalendar.ajax_url,
+        method: 'POST',
+        data: {
+            action: 'ecco_get_groups'
+        },
+        success: function (response) {
+
+            console.log('AJAX Response:', response);
+
+            if (!response.success) {
+                select.html('<option value="">Failed to load groups</option>');
+                return;
+            }
+
+            select.empty();
+            select.append('<option value="">Select Group</option>');
+
+            response.data.forEach(function (group) {
+                select.append(
+                    $('<option>', {
+                        value: group.id,
+                        text: group.title
+                    })
+                );
+            });
+
+        }
     });
 
-    document.getElementById('ecco-group-selector')
-        .addEventListener('change', () => calendar.refetchEvents());
+    // 🔹 When Group Changes → Load Events
+    select.on('change', function () {
+
+        const groupId = $(this).val();
+
+        if (!groupId) return;
+
+        console.log('Loading events for group:', groupId);
+
+        $.ajax({
+            url: eccoCalendar.ajax_url,
+            method: 'POST',
+            data: {
+                action: 'ecco_get_group_events',
+                group_id: groupId
+            },
+            success: function (response) {
+
+                if (!response.success) {
+                    alert('Could not load events');
+                    return;
+                }
+
+                calendar.removeAllEvents();
+                calendar.addEventSource(response.data);
+            }
+        });
+
+    });
+
 });

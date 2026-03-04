@@ -2,33 +2,57 @@
 /**
  * Plugin Name: ECCO Intranet
  * Description: Microsoft SSO powered intranet with SharePoint document libraries
- * Version: Alpha 1.0.0
+ * Version: Alpha 1.0.1
  */
 
 if (!defined('ABSPATH')) exit;
 
+/* =========================================================
+   CONSTANTS
+   ========================================================= */
+
 define('ECCO_PATH', plugin_dir_path(__FILE__));
 define('ECCO_URL', plugin_dir_url(__FILE__));
 
+/* =========================================================
+   START SESSION (Required for Delegated Graph Tokens)
+   ========================================================= */
+
+if (!session_id()) {
+    session_start();
+}
+
+/* =========================================================
+   LOAD CORE FILES (ORDER MATTERS)
+   ========================================================= */
+
+
+/* --- Authentication + Graph Layer --- */
 require_once ECCO_PATH . 'includes/auth-microsoft.php';
 require_once ECCO_PATH . 'includes/graph-client.php';
 require_once ECCO_PATH . 'includes/graph-token-store.php';
+
+/* --- SharePoint + Core AJAX --- */
 require_once ECCO_PATH . 'includes/sharepoint.php';
 require_once ECCO_PATH . 'includes/ajax.php';
+
+
+/* --- Admin + Shortcodes --- */
 require_once ECCO_PATH . 'includes/admin-settings.php';
 require_once ECCO_PATH . 'includes/shortcodes.php';
 require_once ECCO_PATH . 'includes/shortcodes-dashboard.php';
 require_once ECCO_PATH . 'includes/leave-shortcode.php';
 require_once ECCO_PATH . 'includes/logbooks-status-shortcode.php';
 require_once ECCO_PATH . 'includes/logbooks-module.php';
+
+/* --- Leave Module --- */
 require_once ECCO_PATH . 'includes/leave/leave-loader.php';
 require_once ECCO_PATH . 'includes/leave/leave-approval-shortcode.php';
 require_once ECCO_PATH . 'includes/leave/leave-dashboard-shortcode.php';
+
+/* --- Calendar Module (LOAD AFTER GRAPH FILES) --- */
 require_once ECCO_PATH . 'calendar/calendar-page.php';
 require_once ECCO_PATH . 'calendar/calendar-ajax.php';
-
-
-
 
 
 /* =========================================================
@@ -46,7 +70,7 @@ function ecco_enqueue_assets() {
         'ecco-intranet',
         ECCO_URL . 'assets/js/intranet.js',
         ['jquery'],
-        null,
+        filemtime(ECCO_PATH . 'assets/js/intranet.js'),
         true
     );
 
@@ -56,26 +80,53 @@ function ecco_enqueue_assets() {
     ]);
 }
 
+/* --- Calendar Assets --- */
+
 function ecco_calendar_assets() {
-    wp_enqueue_script('fullcalendar-js', 
+
+    wp_enqueue_script(
+        'fullcalendar-js',
         'https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js',
-        [], null, true
+        [],
+        null,
+        true
     );
 
     wp_enqueue_script(
         'ecco-calendar-js',
-        plugin_dir_url(__FILE__) . 'calendar/calendar.js',
+        ECCO_URL . 'calendar/calendar.js',
         ['jquery', 'fullcalendar-js'],
-        null, true
+        filemtime(ECCO_PATH . 'calendar/calendar.js'),
+        true
+    );
+
+    wp_localize_script(
+        'ecco-calendar-js',
+        'eccoCalendar',
+        [
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce'    => wp_create_nonce('ecco_calendar_nonce')
+        ]
     );
 
     wp_enqueue_style(
         'ecco-calendar-css',
-        plugin_dir_url(__FILE__) . 'calendar/calendar.css'
+        ECCO_URL . 'calendar/calendar.css'
     );
 }
-add_action('wp_enqueue_scripts', 'ecco_calendar_assets');
 
+add_action('wp_enqueue_scripts', function () {
+
+    if (!is_page()) return;
+
+    global $post;
+    if (!$post) return;
+
+    if (has_shortcode($post->post_content, 'ecco_group_calendar')) {
+        ecco_calendar_assets();
+    }
+
+});
 
 
 /* =========================================================
@@ -94,9 +145,6 @@ add_shortcode('ecco_intranet', function () {
     include ECCO_PATH . 'templates/intranet.php';
     return ob_get_clean();
 });
-
-
-
 
 
 /* =========================================================
@@ -120,9 +168,6 @@ add_action('template_redirect', function () {
 });
 
 
-
-
-
 /* =========================================================
    PLUGIN ACTIVATION
    ========================================================= */
@@ -143,14 +188,10 @@ function ecco_intranet_activate() {
         ecco_create_public_holidays_table();
     }
 
-    // Safe schema upgrade
     if (function_exists('ecco_leave_maybe_upgrade_database')) {
         ecco_leave_maybe_upgrade_database();
     }
 }
-
-
-
 
 
 /* =========================================================
@@ -179,9 +220,6 @@ function ecco_leave_maybe_upgrade_database() {
 
     update_option('ecco_leave_db_version', '1.1');
 }
-
-
-
 
 
 /* =========================================================
@@ -216,124 +254,17 @@ if (!function_exists('ecco_get_graph_manager_profile')) {
     }
 }
 
-if (!function_exists('ecco_current_user_can_approve_leave')) {
-    function ecco_current_user_can_approve_leave($request) {
-
-        if (current_user_can('manage_options')) return true;
-
-        $me = ecco_get_graph_user_profile();
-        $my_email = strtolower(trim($me['mail'] ?? ''));
-
-        if (!empty($request->manager_email) &&
-            strtolower($request->manager_email) === $my_email) {
-            return true;
-        }
-
-        return false;
-    }
-}
-
 
 /* =========================================================
-   EFFECTIVE MANAGER RESOLUTION (RESTORED)
+   DEBUG: GRAPH GROUP TEST
    ========================================================= */
 
-if (!function_exists('ecco_resolve_effective_manager')) {
+add_action('wp_ajax_ecco_debug_groups', function() {
 
-    function ecco_resolve_effective_manager() {
+    $response = ecco_graph_request('GET', 'groups');
 
-        // Try Microsoft Graph manager first
-        if (function_exists('ecco_get_graph_manager_profile')) {
-
-            $manager = ecco_get_graph_manager_profile();
-
-            if (!empty($manager['mail'])) {
-                return $manager;
-            }
-        }
-
-        // Fallback: no manager found
-        return [
-            'id'          => null,
-            'displayName' => null,
-            'mail'        => null
-        ];
-    }
-}
-
-
-/* =========================================================
-   TOKEN COOKIE SETUP
-   ========================================================= */
-
-add_action('init', function () {
-
-    if (is_user_logged_in() && function_exists('ecco_graph_get_token')) {
-
-        $token = ecco_graph_get_token(get_current_user_id());
-
-        if (!empty($token['access_token'])) {
-            $_COOKIE['ecco_token'] = $token['access_token'];
-        }
-    }
+    wp_send_json($response);
 });
-
-
-
-
-
-/* =========================================================
-   ENSURE TABLE EXISTS (SAFE FALLBACK)
-   ========================================================= */
-
-add_action('init', function () {
-
-    if (function_exists('ecco_create_leave_table')) {
-        ecco_create_leave_table();
-    }
-});
-
-
-
-
-
-/* =========================================================
-   AJAX — GET LEAVE PREVIEW (CORRECT VERSION)
-   ========================================================= */
-
-add_action('wp_ajax_ecco_get_leave_preview', 'ecco_get_leave_preview');
-
-function ecco_get_leave_preview() {
-
-    if (!is_user_logged_in()) wp_send_json_error();
-
-    global $wpdb;
-
-    $user_id   = get_current_user_id();
-    $leaveType = sanitize_text_field($_POST['leave_type'] ?? '');
-    $start     = sanitize_text_field($_POST['start_date'] ?? '');
-    $end       = sanitize_text_field($_POST['end_date'] ?? '');
-
-    if (!$leaveType || !$start || !$end) wp_send_json_error();
-
-    $balance_table = $wpdb->prefix . 'ecco_leave_balances';
-
-    $balance = (float) $wpdb->get_var($wpdb->prepare(
-        "SELECT balance FROM $balance_table
-         WHERE user_id = %d AND leave_type = %s",
-        $user_id,
-        $leaveType
-    ));
-
-    // IMPORTANT: uses the SAME function as submission logic
-    $days = ecco_calculate_leave_days($start, $end);
-
-    wp_send_json_success([
-        'balance'   => $balance,
-        'days'      => $days,
-        'remaining' => $balance - $days
-    ]);
-}
 
 add_action('http_api_debug', function($response, $context, $class, $args, $url) {
     error_log('HTTP DEBUG URL: ' . $url);
