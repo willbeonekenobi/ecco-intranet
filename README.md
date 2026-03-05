@@ -120,5 +120,5 @@ See LICENSE for details.
 📫 Contact
 
 If you have questions or want to collaborate:
-Email: (your email)
+Email: willbeonekenobi@gmail.com
 Repo: https://github.com/willbeonekenobi/ecco-intranet
