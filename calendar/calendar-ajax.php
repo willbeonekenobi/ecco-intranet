@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 /* =========================================================
-   HELPER — GET GRAPH ACCESS TOKEN
+   GRAPH TOKEN HELPER
    ========================================================= */
 
 function ecco_get_graph_token() {
@@ -23,7 +23,45 @@ function ecco_get_graph_token() {
 
 
 /* =========================================================
-   FETCH USER'S MICROSOFT 365 GROUPS
+   GRAPH REQUEST HELPER
+   ========================================================= */
+
+function ecco_graph_request($method, $endpoint, $body = null) {
+
+    $token = ecco_get_graph_token();
+
+    if (!$token) {
+        return false;
+    }
+
+    $args = [
+        'method' => $method,
+        'headers' => [
+            'Authorization' => 'Bearer ' . $token,
+            'Content-Type'  => 'application/json'
+        ],
+        'timeout' => 60
+    ];
+
+    if ($body) {
+        $args['body'] = json_encode($body);
+    }
+
+    $response = wp_remote_request(
+        "https://graph.microsoft.com/v1.0{$endpoint}",
+        $args
+    );
+
+    if (is_wp_error($response)) {
+        return false;
+    }
+
+    return json_decode(wp_remote_retrieve_body($response), true);
+}
+
+
+/* =========================================================
+   FETCH USER GROUPS
    ========================================================= */
 
 add_action('wp_ajax_ecco_get_groups', 'ecco_get_groups');
@@ -34,32 +72,20 @@ function ecco_get_groups() {
         wp_send_json_error('Not logged in');
     }
 
-    $access_token = ecco_get_graph_token();
-
-    if (!$access_token) {
-        wp_send_json_error('No access token');
-    }
-
-    $endpoint = 'https://graph.microsoft.com/v1.0/me/memberOf?$select=id,displayName,groupTypes';
+    $endpoint = "/me/memberOf?\$select=id,displayName,groupTypes";
     $groups = [];
 
-    while ($endpoint) {
+    do {
 
-        $response = wp_remote_get($endpoint, [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $access_token
-            ]
-        ]);
+        $response = ecco_graph_request('GET', $endpoint);
 
-        if (is_wp_error($response)) {
-            wp_send_json_error($response->get_error_message());
+        if (!$response) {
+            wp_send_json_error('Graph request failed');
         }
 
-        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (!empty($response['value'])) {
 
-        if (!empty($body['value'])) {
-
-            foreach ($body['value'] as $item) {
+            foreach ($response['value'] as $item) {
 
                 if (empty($item['groupTypes']) || !in_array('Unified', $item['groupTypes'])) {
                     continue;
@@ -73,15 +99,18 @@ function ecco_get_groups() {
 
         }
 
-        $endpoint = $body['@odata.nextLink'] ?? null;
-    }
+        $endpoint = isset($response['@odata.nextLink'])
+            ? str_replace('https://graph.microsoft.com/v1.0', '', $response['@odata.nextLink'])
+            : null;
+
+    } while ($endpoint);
 
     wp_send_json_success($groups);
 }
 
 
 /* =========================================================
-   FETCH GROUP EVENTS
+   FETCH GROUP EVENTS (calendarView for recurring events)
    ========================================================= */
 
 add_action('wp_ajax_ecco_get_group_events', 'ecco_get_group_events');
@@ -96,42 +125,48 @@ function ecco_get_group_events() {
         wp_send_json_error('Missing group ID');
     }
 
-    $access_token = ecco_get_graph_token();
-
-    if (!$access_token) {
-        wp_send_json_error('No access token');
-    }
-
     $group_id = sanitize_text_field($_POST['group_id']);
 
-    $endpoint = "https://graph.microsoft.com/v1.0/groups/{$group_id}/events";
+    // Visible range (1 year window)
+    $start = gmdate('Y-m-d\T00:00:00\Z', strtotime('-6 months'));
+    $end   = gmdate('Y-m-d\T00:00:00\Z', strtotime('+6 months'));
 
-    $response = wp_remote_get($endpoint, [
-        'headers' => [
-            'Authorization' => 'Bearer ' . $access_token
-        ]
-    ]);
+    $endpoint = "/groups/{$group_id}/calendarView?startDateTime={$start}&endDateTime={$end}";
 
-    if (is_wp_error($response)) {
-        wp_send_json_error($response->get_error_message());
+    $response = ecco_graph_request('GET', $endpoint);
+
+    if (!$response) {
+        wp_send_json_error('Graph request failed');
     }
-
-    $body = json_decode(wp_remote_retrieve_body($response), true);
 
     $events = [];
 
-    if (!empty($body['value'])) {
+    if (!empty($response['value'])) {
 
-        foreach ($body['value'] as $event) {
+        foreach ($response['value'] as $event) {
+
+            $start = null;
+            $end   = null;
+
+            if (!empty($event['start']['dateTime'])) {
+                $start = (new DateTime($event['start']['dateTime']))
+                    ->setTimezone(new DateTimeZone('Africa/Johannesburg'))
+                    ->format('c');
+            }
+
+            if (!empty($event['end']['dateTime'])) {
+                $end = (new DateTime($event['end']['dateTime']))
+                    ->setTimezone(new DateTimeZone('Africa/Johannesburg'))
+                    ->format('c');
+            }
 
             $events[] = [
                 'id'    => $event['id'],
                 'title' => $event['subject'] ?? '(No title)',
-                'start' => $event['start']['dateTime'] ?? null,
-                'end'   => $event['end']['dateTime'] ?? null,
+                'start' => $start,
+                'end'   => $end,
                 'allDay'=> $event['isAllDay'] ?? false
             ];
-
         }
     }
 
@@ -151,41 +186,35 @@ function ecco_create_event() {
         wp_send_json_error('Not logged in');
     }
 
-    $access_token = ecco_get_graph_token();
-
-    if (!$access_token) {
-        wp_send_json_error('No access token');
-    }
-
     $group_id = sanitize_text_field($_POST['group_id']);
     $title    = sanitize_text_field($_POST['title']);
     $start    = sanitize_text_field($_POST['start']);
     $end      = sanitize_text_field($_POST['end']);
 
-    $endpoint = "https://graph.microsoft.com/v1.0/groups/{$group_id}/events";
-
     $body = [
+
         "subject" => $title,
+
         "start" => [
             "dateTime" => $start,
-            "timeZone" => "UTC"
+            "timeZone" => "South Africa Standard Time"
         ],
+
         "end" => [
             "dateTime" => $end,
-            "timeZone" => "UTC"
+            "timeZone" => "South Africa Standard Time"
         ]
+
     ];
 
-    $response = wp_remote_post($endpoint, [
-        'headers' => [
-            'Authorization' => 'Bearer ' . $access_token,
-            'Content-Type'  => 'application/json'
-        ],
-        'body' => json_encode($body)
-    ]);
+    $response = ecco_graph_request(
+        'POST',
+        "/groups/{$group_id}/events",
+        $body
+    );
 
-    if (is_wp_error($response)) {
-        wp_send_json_error($response->get_error_message());
+    if (!$response) {
+        wp_send_json_error('Graph create failed');
     }
 
     wp_send_json_success();
@@ -204,43 +233,36 @@ function ecco_update_event() {
         wp_send_json_error('Not logged in');
     }
 
-    $access_token = ecco_get_graph_token();
-
-    if (!$access_token) {
-        wp_send_json_error('No access token');
-    }
-
     $group_id = sanitize_text_field($_POST['group_id']);
     $event_id = sanitize_text_field($_POST['event_id']);
     $title    = sanitize_text_field($_POST['title']);
     $start    = sanitize_text_field($_POST['start']);
     $end      = sanitize_text_field($_POST['end']);
 
-    $endpoint = "https://graph.microsoft.com/v1.0/groups/{$group_id}/events/{$event_id}";
-
     $body = [
+
         "subject" => $title,
+
         "start" => [
             "dateTime" => $start,
-            "timeZone" => "UTC"
+            "timeZone" => "South Africa Standard Time"
         ],
+
         "end" => [
             "dateTime" => $end,
-            "timeZone" => "UTC"
+            "timeZone" => "South Africa Standard Time"
         ]
+
     ];
 
-    $response = wp_remote_request($endpoint, [
-        'method' => 'PATCH',
-        'headers' => [
-            'Authorization' => 'Bearer ' . $access_token,
-            'Content-Type'  => 'application/json'
-        ],
-        'body' => json_encode($body)
-    ]);
+    $response = ecco_graph_request(
+        'PATCH',
+        "/groups/{$group_id}/events/{$event_id}",
+        $body
+    );
 
-    if (is_wp_error($response)) {
-        wp_send_json_error($response->get_error_message());
+    if (!$response) {
+        wp_send_json_error('Update failed');
     }
 
     wp_send_json_success();
@@ -259,26 +281,16 @@ function ecco_delete_event() {
         wp_send_json_error('Not logged in');
     }
 
-    $access_token = ecco_get_graph_token();
-
-    if (!$access_token) {
-        wp_send_json_error('No access token');
-    }
-
     $group_id = sanitize_text_field($_POST['group_id']);
     $event_id = sanitize_text_field($_POST['event_id']);
 
-    $endpoint = "https://graph.microsoft.com/v1.0/groups/{$group_id}/events/{$event_id}";
+    $response = ecco_graph_request(
+        'DELETE',
+        "/groups/{$group_id}/events/{$event_id}"
+    );
 
-    $response = wp_remote_request($endpoint, [
-        'method' => 'DELETE',
-        'headers' => [
-            'Authorization' => 'Bearer ' . $access_token
-        ]
-    ]);
-
-    if (is_wp_error($response)) {
-        wp_send_json_error($response->get_error_message());
+    if ($response === false) {
+        wp_send_json_error('Delete failed');
     }
 
     wp_send_json_success();

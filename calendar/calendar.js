@@ -12,7 +12,6 @@ jQuery(document).ready(function ($) {
 
     let currentGroup = null;
 
-    // 🔹 Initialize FullCalendar
     const calendar = new FullCalendar.Calendar(calendarEl, {
 
         initialView: 'dayGridMonth',
@@ -28,9 +27,14 @@ jQuery(document).ready(function ($) {
             right: 'dayGridMonth,timeGridWeek,timeGridDay'
         },
 
+        timeZone: 'local',
+
         events: [],
 
-        // 🔹 Create Event
+        /* ======================================
+           CREATE EVENT
+        ====================================== */
+
         select: function (info) {
 
             if (!currentGroup) {
@@ -45,12 +49,24 @@ jQuery(document).ready(function ($) {
                 return;
             }
 
+            let start = info.start;
+            let end = info.end;
+
+            // If user clicked day (month view)
+            if (info.allDay) {
+
+                start.setHours(9,0,0);
+                end = new Date(start);
+                end.setHours(10,0,0);
+
+            }
+
             $.post(eccoCalendar.ajax_url, {
                 action: 'ecco_create_event',
                 group_id: currentGroup,
                 title: title,
-                start: info.startStr,
-                end: info.endStr
+                start: start.toISOString(),
+                end: end.toISOString()
             }, function (response) {
 
                 if (!response.success) {
@@ -63,7 +79,10 @@ jQuery(document).ready(function ($) {
 
         },
 
-        // 🔹 Drag / Resize Event
+        /* ======================================
+           DRAG / RESIZE EVENT
+        ====================================== */
+
         eventChange: function (info) {
 
             if (!currentGroup) return;
@@ -74,7 +93,7 @@ jQuery(document).ready(function ($) {
                 event_id: info.event.id,
                 title: info.event.title,
                 start: info.event.start.toISOString(),
-                end: info.event.end ? info.event.end.toISOString() : null
+                end: info.event.end ? info.event.end.toISOString() : info.event.start.toISOString()
             }, function (response) {
 
                 if (!response.success) {
@@ -86,14 +105,20 @@ jQuery(document).ready(function ($) {
 
         },
 
-        // 🔹 Click Event (Edit / Delete)
+        /* ======================================
+           CLICK EVENT (EDIT / DELETE)
+        ====================================== */
+
         eventClick: function (info) {
 
             const action = prompt(
                 "Type:\n" +
-                "1 to rename event\n" +
-                "2 to delete event"
+                "1 = rename\n" +
+                "2 = delete\n" +
+                "3 = change time"
             );
+
+            /* rename */
 
             if (action === "1") {
 
@@ -101,24 +126,11 @@ jQuery(document).ready(function ($) {
 
                 if (!newTitle) return;
 
-                $.post(eccoCalendar.ajax_url, {
-                    action: 'ecco_update_event',
-                    group_id: currentGroup,
-                    event_id: info.event.id,
-                    title: newTitle,
-                    start: info.event.start.toISOString(),
-                    end: info.event.end ? info.event.end.toISOString() : null
-                }, function (response) {
-
-                    if (!response.success) {
-                        alert('Rename failed');
-                        return;
-                    }
-
-                    loadEvents(currentGroup);
-                });
+                updateEvent(info.event, newTitle);
 
             }
+
+            /* delete */
 
             if (action === "2") {
 
@@ -136,6 +148,50 @@ jQuery(document).ready(function ($) {
                     }
 
                     info.event.remove();
+
+                });
+
+            }
+
+            /* change time */
+
+            if (action === "3") {
+
+                let newStart = prompt(
+                    "Start (YYYY-MM-DD HH:MM)",
+                    info.event.start.toISOString().slice(0,16).replace('T',' ')
+                );
+
+                if (!newStart) return;
+
+                let newEnd = prompt(
+                    "End (YYYY-MM-DD HH:MM)",
+                    info.event.end
+                        ? info.event.end.toISOString().slice(0,16).replace('T',' ')
+                        : newStart
+                );
+
+                if (!newEnd) return;
+
+                newStart = new Date(newStart.replace(' ','T'));
+                newEnd = new Date(newEnd.replace(' ','T'));
+
+                $.post(eccoCalendar.ajax_url, {
+                    action: 'ecco_update_event',
+                    group_id: currentGroup,
+                    event_id: info.event.id,
+                    title: info.event.title,
+                    start: newStart.toISOString(),
+                    end: newEnd.toISOString()
+                }, function (response) {
+
+                    if (!response.success) {
+                        alert('Time update failed');
+                        return;
+                    }
+
+                    loadEvents(currentGroup);
+
                 });
 
             }
@@ -146,7 +202,10 @@ jQuery(document).ready(function ($) {
 
     calendar.render();
 
-    // 🔹 Load Groups
+    /* ======================================
+       LOAD GROUPS
+    ====================================== */
+
     $.ajax({
         url: eccoCalendar.ajax_url,
         method: 'POST',
@@ -179,7 +238,10 @@ jQuery(document).ready(function ($) {
         }
     });
 
-    // 🔹 Load Events
+    /* ======================================
+       LOAD EVENTS
+    ====================================== */
+
     function loadEvents(groupId) {
 
         $.ajax({
@@ -204,7 +266,10 @@ jQuery(document).ready(function ($) {
 
     }
 
-    // 🔹 Group Selection
+    /* ======================================
+       GROUP SELECTION
+    ====================================== */
+
     select.on('change', function () {
 
         currentGroup = $(this).val();
