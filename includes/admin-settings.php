@@ -234,3 +234,88 @@ function ecco_settings_page() {
 </div>
 <?php
 }
+
+
+/* =========================================================
+   SELF-MANAGER ADMIN PAGE
+   ========================================================= */
+
+add_action('admin_menu', function () {
+    add_submenu_page(
+        'options-general.php',
+        'Leave Self-Managers',
+        'Leave Self-Managers',
+        'manage_options',
+        'ecco-self-managers',
+        'ecco_self_managers_page'
+    );
+});
+
+function ecco_self_managers_page() {
+
+    if ( ! current_user_can( 'manage_options' ) ) return;
+
+    /* Handle save */
+    if ( isset( $_POST['ecco_save_self_managers'] ) ) {
+
+        check_admin_referer( 'ecco_save_self_managers' );
+
+        $all_users = get_users( [ 'fields' => 'ID' ] );
+
+        foreach ( $all_users as $uid ) {
+            $is_self = isset( $_POST['self_manager'][ $uid ] ) ? '1' : '0';
+            update_user_meta( (int) $uid, 'ecco_is_self_manager', $is_self );
+        }
+
+        echo '<div class="updated"><p>Self-manager settings saved.</p></div>';
+    }
+
+    $users = get_users( [ 'orderby' => 'display_name' ] );
+
+    ?>
+    <div class="wrap">
+        <h1>Leave Self-Managers</h1>
+        <p>
+            Users flagged as <strong>self-managers</strong> can approve or reject their
+            own leave requests directly from the Leave Dashboard. They will still receive
+            the standard approval/rejection email notification.
+        </p>
+
+        <form method="post">
+            <?php wp_nonce_field( 'ecco_save_self_managers' ); ?>
+
+            <table class="widefat striped" style="max-width:600px;">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Email</th>
+                        <th style="text-align:center;">Self-Manager</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ( $users as $user ) :
+                        $checked = get_user_meta( $user->ID, 'ecco_is_self_manager', true ) === '1';
+                    ?>
+                    <tr>
+                        <td><?php echo esc_html( $user->display_name ); ?></td>
+                        <td><?php echo esc_html( $user->user_email ); ?></td>
+                        <td style="text-align:center;">
+                            <input
+                                type="checkbox"
+                                name="self_manager[<?php echo esc_attr( $user->ID ); ?>]"
+                                value="1"
+                                <?php checked( $checked ); ?>
+                            >
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+
+            <p style="margin-top:16px;">
+                <button class="button button-primary" name="ecco_save_self_managers">Save Changes</button>
+            </p>
+        </form>
+    </div>
+    <?php
+}

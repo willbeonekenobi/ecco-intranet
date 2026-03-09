@@ -98,10 +98,22 @@ add_shortcode('ecco_leave_dashboard', function () {
                 $r->leave_type
             ));
 
-            $balance_before = $balance_row->balance ?? 0;
-            $balance_after  = ($r->status === 'approved') 
-                ? max(0, $balance_before - $days_requested) 
-                : $balance_before;
+            $current_balance = $balance_row->balance ?? 0;
+
+            // The DB balance is already deducted when a request is approved.
+            // So:
+            //   approved  → balance_after  = current DB value (deducted)
+            //               balance_before = current DB value + days used
+            //   pending / rejected → balance has NOT been touched
+            //               balance_before = current DB value
+            //               balance_after  = current DB value - days (projected)
+            if ( $r->status === 'approved' ) {
+                $balance_after  = $current_balance;
+                $balance_before = $current_balance + $days_requested;
+            } else {
+                $balance_before = $current_balance;
+                $balance_after  = max( 0, $current_balance - $days_requested );
+            }
 
         ?>
 
@@ -125,18 +137,36 @@ add_shortcode('ecco_leave_dashboard', function () {
                 <td><?php echo $manager_comment ? nl2br(esc_html($manager_comment)) : '—'; ?></td>
 
                 <td>
-                    <?php if (!$disabled && function_exists('ecco_current_user_can_approve_leave') && ecco_current_user_can_approve_leave($r)) : ?>
+                    <?php if ( ! $disabled && function_exists( 'ecco_current_user_can_approve_leave' ) && ecco_current_user_can_approve_leave( $r ) ) :
 
-                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                            <?php wp_nonce_field('ecco_leave_action_' . $r->id); ?>
-                            <input type="hidden" name="request_id" value="<?php echo esc_attr($r->id); ?>">
-                            <textarea name="manager_comment" required placeholder="Manager comment"></textarea>
-                            <button type="submit" name="action" value="ecco_leave_approve">Approve</button>
-                            <button type="submit" name="action" value="ecco_leave_reject">Reject</button>
+                        $is_own_request = ( (int) get_current_user_id() === (int) $r->user_id );
+                    ?>
+
+                        <?php if ( $is_own_request ) : ?>
+                            <p style="margin:0 0 6px;font-size:12px;color:#666;">
+                                <em>🔑 Self-approval — you are flagged as a self-manager</em>
+                            </p>
+                        <?php endif; ?>
+
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                            <?php wp_nonce_field( 'ecco_leave_action_' . $r->id ); ?>
+                            <input type="hidden" name="request_id" value="<?php echo esc_attr( $r->id ); ?>">
+                            <textarea name="manager_comment" required placeholder="Comment (required)" style="width:100%;min-height:50px;margin-bottom:4px;"></textarea>
+                            <button type="submit" name="action" value="ecco_leave_approve"
+                                style="background:#2e7d32;color:#fff;border:none;padding:5px 10px;border-radius:3px;cursor:pointer;margin-right:4px;">
+                                ✅ Approve
+                            </button>
+                            <button type="submit" name="action" value="ecco_leave_reject"
+                                style="background:#c62828;color:#fff;border:none;padding:5px 10px;border-radius:3px;cursor:pointer;"
+                                onclick="return confirm('Reject this leave request?')">
+                                ❌ Reject
+                            </button>
                         </form>
 
+                    <?php elseif ( $disabled ) : ?>
+                        <em style="color:#888;">—</em>
                     <?php else : ?>
-                        <em>Actioned</em>
+                        <em style="color:#aaa;">No action available</em>
                     <?php endif; ?>
                 </td>
 

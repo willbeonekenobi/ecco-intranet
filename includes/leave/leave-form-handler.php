@@ -320,18 +320,131 @@ function ecco_handle_leave_action($status) {
         }
     }
 
-    /* Notify employee */
+    /* =========================================================
+       NOTIFY REQUESTER — always send, including self-approved requests
+    ========================================================= */
 
-    $requester = get_userdata($request->user_id);
+    $requester = get_userdata( $request->user_id );
 
-    if ($requester) {
+    if ( $requester && ! empty( $requester->user_email ) ) {
+
+        $status_label  = ucfirst( $status );
+        $status_colour = ( $status === 'approved' ) ? '#2e7d32' : '#c62828';
+        $status_icon   = ( $status === 'approved' ) ? '✅' : '❌';
+
+        $actor      = wp_get_current_user();
+        $actor_name = ! empty( $actor->display_name ) ? $actor->display_name : 'Your manager';
+
+        $days_requested = ecco_calculate_leave_days( $request->start_date, $request->end_date );
+
+        $subject = "{$status_icon} Your leave request has been {$status_label}";
+
+        $message = '<!DOCTYPE html>
+<html>
+<body style="font-family:Arial,sans-serif;background:#f5f5f5;margin:0;padding:20px;">
+<div style="max-width:560px;margin:0 auto;background:#fff;border-radius:6px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.12);">
+
+  <div style="background:' . esc_attr( $status_colour ) . ';padding:20px 28px;">
+    <h2 style="color:#fff;margin:0;font-size:20px;">Leave Request ' . esc_html( $status_label ) . '</h2>
+  </div>
+
+  <div style="padding:24px 28px;">
+    <p style="margin:0 0 16px;">Hi <strong>' . esc_html( $requester->display_name ) . '</strong>,</p>
+    <p style="margin:0 0 20px;">
+      Your leave request has been <strong>' . esc_html( $status ) . '</strong>
+      by <strong>' . esc_html( $actor_name ) . '</strong>.
+    </p>
+
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
+      <tr style="background:#f9f9f9;">
+        <td style="padding:8px 12px;border:1px solid #e0e0e0;font-weight:bold;">Leave Type</td>
+        <td style="padding:8px 12px;border:1px solid #e0e0e0;">' . esc_html( $request->leave_type ) . '</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;border:1px solid #e0e0e0;font-weight:bold;">Dates</td>
+        <td style="padding:8px 12px;border:1px solid #e0e0e0;">' . esc_html( $request->start_date . ' → ' . $request->end_date ) . '</td>
+      </tr>
+      <tr style="background:#f9f9f9;">
+        <td style="padding:8px 12px;border:1px solid #e0e0e0;font-weight:bold;">Working Days</td>
+        <td style="padding:8px 12px;border:1px solid #e0e0e0;">' . esc_html( $days_requested ) . '</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;border:1px solid #e0e0e0;font-weight:bold;">Decision</td>
+        <td style="padding:8px 12px;border:1px solid #e0e0e0;color:' . esc_attr( $status_colour ) . ';font-weight:bold;">' . esc_html( $status_label ) . '</td>
+      </tr>
+    </table>
+' . ( $comment
+    ? '<div style="background:#f9f9f9;border-left:4px solid ' . esc_attr( $status_colour ) . ';padding:12px 16px;margin-bottom:20px;">
+      <strong>Comment from ' . esc_html( $actor_name ) . ':</strong><br>
+      <span style="white-space:pre-line;">' . nl2br( esc_html( $comment ) ) . '</span>
+    </div>'
+    : '' ) . '
+    <p style="margin:0;color:#888;font-size:13px;">This is an automated notification from the ECCO Intranet leave system.</p>
+  </div>
+
+</div>
+</body>
+</html>';
+
         wp_mail(
             $requester->user_email,
-            "Your leave request was {$status}",
-            "Manager comment:\n{$comment}"
+            $subject,
+            $message,
+            [ 'Content-Type: text/html; charset=UTF-8' ]
         );
     }
 
-    wp_redirect(wp_get_referer());
+    wp_redirect( wp_get_referer() );
     exit;
+}
+
+
+/* =========================================================
+   AJAX: LEAVE BALANCE PREVIEW
+   Called by the inline JS in templates/leave/leave-form.php
+   whenever the user changes leave type, start date, or end date.
+========================================================= */
+
+add_action( 'wp_ajax_ecco_get_leave_preview', 'ecco_ajax_get_leave_preview' );
+
+function ecco_ajax_get_leave_preview() {
+
+    if ( ! is_user_logged_in() ) {
+        wp_send_json_error( 'Not logged in' );
+    }
+
+    $leave_type = sanitize_text_field( $_POST['leave_type'] ?? '' );
+    $start_date = sanitize_text_field( $_POST['start_date'] ?? '' );
+    $end_date   = sanitize_text_field( $_POST['end_date']   ?? '' );
+
+    if ( ! $leave_type || ! $start_date || ! $end_date ) {
+        wp_send_json_error( 'Missing fields' );
+    }
+
+    global $wpdb;
+
+    $user_id = get_current_user_id();
+
+    /* Current balance for this leave type */
+    $balance_row = $wpdb->get_row( $wpdb->prepare(
+        "SELECT balance FROM {$wpdb->prefix}ecco_leave_balances
+         WHERE user_id = %d AND leave_type = %s",
+        $user_id,
+        $leave_type
+    ) );
+
+    $balance = $balance_row ? (float) $balance_row->balance : 0.0;
+
+    /* Working days requested (excludes weekends + public holidays) */
+    $days = function_exists( 'ecco_calculate_leave_days' )
+        ? (int) ecco_calculate_leave_days( $start_date, $end_date )
+        : 0;
+
+    $remaining = $balance - $days;
+
+    wp_send_json_success( [
+        'balance'   => $balance,
+        'days'      => $days,
+        'remaining' => $remaining,
+    ] );
 }
