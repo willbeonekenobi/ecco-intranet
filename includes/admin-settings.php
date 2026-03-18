@@ -164,6 +164,7 @@ function ecco_settings_page() {
         }
 
         update_option('ecco_leave_types', $new_leave_types ?: $default_leave_types);
+        update_option('ecco_training_drive_id', sanitize_text_field($_POST['training_drive_id'] ?? ''));
 
         echo '<div class="updated"><p>Settings saved</p></div>';
     }
@@ -172,6 +173,7 @@ function ecco_settings_page() {
     if (isset($_POST['reset_cache']) && check_admin_referer('ecco_reset_cache')) {
         delete_option('ecco_site_id');
         delete_option('ecco_drive_map');
+        delete_option('ecco_drive_raw_names');
         echo '<div class="updated"><p>SharePoint cache cleared</p></div>';
     }
 ?>
@@ -193,6 +195,32 @@ function ecco_settings_page() {
             <tr>
                 <th>Client Secret</th>
                 <td><input type="password" name="secret" value="<?php echo esc_attr(get_option('ecco_client_secret')); ?>" class="regular-text"></td>
+            </tr>
+        </table>
+
+        <h2>Training Module</h2>
+        <table class="form-table">
+            <tr>
+                <th>Training Drive ID <span style="color:#888;font-weight:400;">(optional override)</span></th>
+                <td>
+                    <input type="text" name="training_drive_id"
+                           value="<?php echo esc_attr(get_option('ecco_training_drive_id')); ?>"
+                           class="regular-text"
+                           placeholder="Paste SharePoint Drive ID here if auto-detect fails">
+                    <p class="description">
+                        Only needed if the <strong>TrainingCertificates</strong> library cannot be found automatically.
+                        Find it by going to <em>ECCO Intranet &rarr; Training &rarr; SP Diagnostics</em> below.
+                    </p>
+<?php
+$raw = get_option('ecco_drive_raw_names', []);
+if ($raw):
+?>
+                    <p class="description" style="margin-top:8px;">
+                        <strong>Discovered SharePoint libraries:</strong><br>
+                        <code style="display:inline-block;margin-top:4px;white-space:pre-wrap;font-size:12px;"><?php echo esc_html(implode("\n", $raw)); ?></code>
+                    </p>
+<?php endif; ?>
+                </td>
             </tr>
         </table>
 

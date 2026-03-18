@@ -47,6 +47,9 @@ require_once ECCO_PATH . 'includes/logbooks-module.php';
 
 /* --- Leave Module --- */
 require_once ECCO_PATH . 'includes/leave/leave-loader.php';
+
+/* --- Training Module --- */
+require_once ECCO_PATH . 'includes/training/training-loader.php';
 require_once ECCO_PATH . 'includes/leave/leave-approval-shortcode.php';
 require_once ECCO_PATH . 'includes/leave/leave-dashboard-shortcode.php';
 require_once ECCO_PATH . 'includes/leave/manager-resolver.php';
@@ -192,6 +195,10 @@ function ecco_intranet_activate() {
     if (function_exists('ecco_leave_maybe_upgrade_database')) {
         ecco_leave_maybe_upgrade_database();
     }
+
+    if (function_exists('ecco_create_training_table')) {
+        ecco_create_training_table();
+    }
 }
 
 
@@ -271,4 +278,20 @@ add_action('http_api_debug', function($response, $context, $class, $args, $url) 
     error_log('HTTP DEBUG URL: ' . $url);
     error_log(print_r($args, true));
 }, 10, 5);
+
+
+/* =========================================================
+   SAFE TRAINING TABLE MIGRATION
+   Creates the table on first load if it doesn't exist yet
+   (covers sites that don't re-run the activation hook)
+   ========================================================= */
+
+add_action('init', function() {
+    if (get_option('ecco_training_db_version') !== '1.0') {
+        if (function_exists('ecco_create_training_table')) {
+            ecco_create_training_table();
+            update_option('ecco_training_db_version', '1.0');
+        }
+    }
+});
 

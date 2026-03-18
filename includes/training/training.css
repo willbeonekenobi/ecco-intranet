@@ -1,0 +1,10 @@
+.ecco-training-table{
+width:100%;
+border-collapse:collapse;
+}
+
+.ecco-training-table th,
+.ecco-training-table td{
+padding:8px;
+border:1px solid #ddd;
+}
