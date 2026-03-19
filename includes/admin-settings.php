@@ -165,6 +165,7 @@ function ecco_settings_page() {
 
         update_option('ecco_leave_types', $new_leave_types ?: $default_leave_types);
         update_option('ecco_training_drive_id', sanitize_text_field($_POST['training_drive_id'] ?? ''));
+        update_option('ecco_calendar_timezone', sanitize_text_field($_POST['calendar_timezone'] ?? 'South Africa Standard Time'));
 
         echo '<div class="updated"><p>Settings saved</p></div>';
     }
@@ -195,6 +196,62 @@ function ecco_settings_page() {
             <tr>
                 <th>Client Secret</th>
                 <td><input type="password" name="secret" value="<?php echo esc_attr(get_option('ecco_client_secret')); ?>" class="regular-text"></td>
+            </tr>
+        </table>
+
+        <h2>Calendar</h2>
+        <table class="form-table">
+            <tr>
+                <th>Default Timezone</th>
+                <td>
+<?php
+$tz_options = [
+    // Africa
+    'South Africa Standard Time'    => 'South Africa Standard Time (UTC+2) — Johannesburg, Cape Town',
+    'Egypt Standard Time'           => 'Egypt Standard Time (UTC+2) — Cairo',
+    'E. Africa Standard Time'       => 'East Africa Standard Time (UTC+3) — Nairobi',
+    'W. Central Africa Standard Time' => 'West Central Africa Standard Time (UTC+1) — Lagos',
+    // Europe
+    'UTC'                           => 'UTC (UTC+0)',
+    'GMT Standard Time'             => 'GMT Standard Time (UTC+0) — London (winter)',
+    'W. Europe Standard Time'       => 'W. Europe Standard Time (UTC+1) — Paris, Berlin (winter)',
+    'Central Europe Standard Time'  => 'Central Europe Standard Time (UTC+1) — Prague',
+    'Romance Standard Time'         => 'Romance Standard Time (UTC+1) — Madrid, Brussels',
+    'E. Europe Standard Time'       => 'Eastern Europe Standard Time (UTC+2)',
+    'FLE Standard Time'             => 'FLE Standard Time (UTC+2) — Helsinki, Kyiv',
+    'GTB Standard Time'             => 'GTB Standard Time (UTC+2) — Athens, Bucharest',
+    // Americas
+    'Eastern Standard Time'         => 'Eastern Standard Time (UTC-5) — New York',
+    'Central Standard Time'         => 'Central Standard Time (UTC-6) — Chicago',
+    'Mountain Standard Time'        => 'Mountain Standard Time (UTC-7) — Denver',
+    'Pacific Standard Time'         => 'Pacific Standard Time (UTC-8) — Los Angeles',
+    'SA Eastern Standard Time'      => 'SA Eastern Standard Time (UTC-3) — Buenos Aires',
+    // Asia / Pacific
+    'India Standard Time'           => 'India Standard Time (UTC+5:30) — New Delhi',
+    'China Standard Time'           => 'China Standard Time (UTC+8) — Beijing, Shanghai',
+    'Tokyo Standard Time'           => 'Tokyo Standard Time (UTC+9) — Tokyo',
+    'AUS Eastern Standard Time'     => 'AUS Eastern Standard Time (UTC+10) — Sydney',
+    'New Zealand Standard Time'     => 'New Zealand Standard Time (UTC+12) — Auckland',
+    // Middle East
+    'Arab Standard Time'            => 'Arab Standard Time (UTC+3) — Riyadh',
+    'Arabian Standard Time'         => 'Arabian Standard Time (UTC+4) — Dubai, Abu Dhabi',
+    'Iran Standard Time'            => 'Iran Standard Time (UTC+3:30) — Tehran',
+];
+$saved_tz = get_option('ecco_calendar_timezone', 'South Africa Standard Time');
+?>
+                    <select name="calendar_timezone" style="min-width:380px;">
+                        <?php foreach ($tz_options as $val => $label): ?>
+                        <option value="<?php echo esc_attr($val); ?>" <?php selected($saved_tz, $val); ?>>
+                            <?php echo esc_html($label); ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="description">
+                        This sets the default timezone shown in the calendar event modal and sent to Outlook/Microsoft 365.
+                        Users can change it per-event in the modal. Must be a
+                        <a href="https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/default-time-zones" target="_blank">Windows timezone name</a>.
+                    </p>
+                </td>
             </tr>
         </table>
 

@@ -61,6 +61,32 @@ function ecco_graph_request($method, $endpoint, $body = null) {
 
 
 /* =========================================================
+   ALLOWED WINDOWS TIMEZONES (whitelist for validation)
+   ========================================================= */
+
+function ecco_allowed_timezones() {
+    return [
+        'South Africa Standard Time', 'Egypt Standard Time', 'E. Africa Standard Time',
+        'W. Central Africa Standard Time', 'UTC', 'GMT Standard Time',
+        'W. Europe Standard Time', 'Central Europe Standard Time', 'Romance Standard Time',
+        'E. Europe Standard Time', 'FLE Standard Time', 'GTB Standard Time',
+        'Eastern Standard Time', 'Central Standard Time', 'Mountain Standard Time',
+        'Pacific Standard Time', 'SA Eastern Standard Time', 'India Standard Time',
+        'China Standard Time', 'Tokyo Standard Time', 'AUS Eastern Standard Time',
+        'New Zealand Standard Time', 'Arab Standard Time', 'Arabian Standard Time',
+        'Iran Standard Time',
+    ];
+}
+
+function ecco_sanitize_timezone($tz) {
+    $allowed = ecco_allowed_timezones();
+    return in_array($tz, $allowed, true)
+        ? $tz
+        : get_option('ecco_calendar_timezone', 'South Africa Standard Time');
+}
+
+
+/* =========================================================
    FETCH USER GROUPS
    ========================================================= */
 
@@ -190,6 +216,7 @@ function ecco_create_event() {
     $title    = sanitize_text_field($_POST['title']);
     $start    = sanitize_text_field($_POST['start']);
     $end      = sanitize_text_field($_POST['end']);
+    $timezone = ecco_sanitize_timezone(sanitize_text_field($_POST['timezone'] ?? ''));
 
     $body = [
 
@@ -197,13 +224,13 @@ function ecco_create_event() {
 
         "start" => [
             "dateTime" => $start,
-            "timeZone" => "South Africa Standard Time"
+            "timeZone" => $timezone,
         ],
 
         "end" => [
             "dateTime" => $end,
-            "timeZone" => "South Africa Standard Time"
-        ]
+            "timeZone" => $timezone,
+        ],
 
     ];
 
@@ -238,6 +265,7 @@ function ecco_update_event() {
     $title    = sanitize_text_field($_POST['title']);
     $start    = sanitize_text_field($_POST['start']);
     $end      = sanitize_text_field($_POST['end']);
+    $timezone = ecco_sanitize_timezone(sanitize_text_field($_POST['timezone'] ?? ''));
 
     $body = [
 
@@ -245,13 +273,13 @@ function ecco_update_event() {
 
         "start" => [
             "dateTime" => $start,
-            "timeZone" => "South Africa Standard Time"
+            "timeZone" => $timezone,
         ],
 
         "end" => [
             "dateTime" => $end,
-            "timeZone" => "South Africa Standard Time"
-        ]
+            "timeZone" => $timezone,
+        ],
 
     ];
 

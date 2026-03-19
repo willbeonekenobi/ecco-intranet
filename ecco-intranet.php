@@ -104,12 +104,42 @@ function ecco_calendar_assets() {
         true
     );
 
+    /* Build timezone list for the calendar modal dropdown */
+    $tz_options = [
+        'South Africa Standard Time'      => 'South Africa (UTC+2)',
+        'Egypt Standard Time'             => 'Egypt (UTC+2)',
+        'E. Africa Standard Time'         => 'East Africa (UTC+3)',
+        'W. Central Africa Standard Time' => 'West Central Africa (UTC+1)',
+        'UTC'                             => 'UTC (UTC+0)',
+        'GMT Standard Time'               => 'London / GMT (UTC+0)',
+        'W. Europe Standard Time'         => 'W. Europe (UTC+1)',
+        'Romance Standard Time'           => 'Madrid / Brussels (UTC+1)',
+        'E. Europe Standard Time'         => 'Eastern Europe (UTC+2)',
+        'FLE Standard Time'               => 'Helsinki / Kyiv (UTC+2)',
+        'GTB Standard Time'               => 'Athens / Bucharest (UTC+2)',
+        'Eastern Standard Time'           => 'New York (UTC-5)',
+        'Central Standard Time'           => 'Chicago (UTC-6)',
+        'Mountain Standard Time'          => 'Denver (UTC-7)',
+        'Pacific Standard Time'           => 'Los Angeles (UTC-8)',
+        'SA Eastern Standard Time'        => 'Buenos Aires (UTC-3)',
+        'India Standard Time'             => 'India (UTC+5:30)',
+        'China Standard Time'             => 'China (UTC+8)',
+        'Tokyo Standard Time'             => 'Tokyo (UTC+9)',
+        'AUS Eastern Standard Time'       => 'Sydney (UTC+10)',
+        'New Zealand Standard Time'       => 'Auckland (UTC+12)',
+        'Arab Standard Time'              => 'Riyadh (UTC+3)',
+        'Arabian Standard Time'           => 'Dubai / Abu Dhabi (UTC+4)',
+        'Iran Standard Time'              => 'Tehran (UTC+3:30)',
+    ];
+
     wp_localize_script(
         'ecco-calendar-js',
         'eccoCalendar',
         [
-            'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce'    => wp_create_nonce('ecco_calendar_nonce')
+            'ajax_url'       => admin_url('admin-ajax.php'),
+            'nonce'          => wp_create_nonce('ecco_calendar_nonce'),
+            'defaultTz'      => get_option('ecco_calendar_timezone', 'South Africa Standard Time'),
+            'timezones'      => $tz_options,
         ]
     );
 
