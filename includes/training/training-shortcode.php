@@ -68,47 +68,6 @@ function ecco_training_shortcode($atts) {
                 </label>
             </form>
 
-            <!-- Add record modal trigger -->
-            <button class="ecco-btn ecco-btn-primary" id="ecco-training-add-btn">
-                + Add Certification
-            </button>
-        </div>
-
-        <!-- Add Record Modal -->
-        <div id="ecco-training-modal" class="ecco-training-modal" style="display:none;">
-            <div class="ecco-training-modal-inner">
-                <h3>Add New Certification Record</h3>
-                <div id="ecco-training-modal-msg"></div>
-
-                <label>Employee <span style="color:red;">*</span>
-                    <select id="ecco-add-user-id" required>
-                        <option value="">— Select —</option>
-                        <?php foreach ($users as $u): ?>
-                            <option value="<?php echo esc_attr($u->ID); ?>">
-                                <?php echo esc_html($u->display_name); ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </label>
-
-                <label>Course Name <span style="color:red;">*</span>
-                    <input type="text" id="ecco-add-course" placeholder="e.g. Electrical Safety">
-                </label>
-
-                <div class="ecco-training-row">
-                    <label>Date Completed
-                        <input type="date" id="ecco-add-completed">
-                    </label>
-                    <label>Date of Expiry
-                        <input type="date" id="ecco-add-expiry">
-                    </label>
-                </div>
-
-                <div class="ecco-training-actions">
-                    <button class="ecco-btn ecco-btn-primary" id="ecco-add-submit">Save Record</button>
-                    <button class="ecco-btn ecco-btn-ghost" id="ecco-modal-close">Cancel</button>
-                </div>
-            </div>
         </div>
 
         <?php else: ?>
@@ -491,50 +450,6 @@ function ecco_training_shortcode($atts) {
         var nonce    = <?php echo json_encode($nonce); ?>;
         var isHR     = <?php echo $is_hr ? 'true' : 'false'; ?>;
         var ajaxurl  = <?php echo json_encode(admin_url('admin-ajax.php')); ?>;
-
-        /* ================================================
-           MODAL — Add Record (HR only)
-           ================================================ */
-        $('#ecco-training-add-btn').on('click', function() {
-            $('#ecco-training-modal').fadeIn(150);
-        });
-        $('#ecco-modal-close').on('click', function() {
-            $('#ecco-training-modal').fadeOut(150);
-        });
-        $(document).on('keyup', function(e) {
-            if (e.key === 'Escape') $('#ecco-training-modal').fadeOut(150);
-        });
-
-        $('#ecco-add-submit').on('click', function() {
-            var userId  = $('#ecco-add-user-id').val();
-            var course  = $('#ecco-add-course').val().trim();
-            var done    = $('#ecco-add-completed').val();
-            var expiry  = $('#ecco-add-expiry').val();
-            var $msg    = $('#ecco-training-modal-msg');
-
-            if (!userId || !course) {
-                $msg.html('<span style="color:red;">Employee and Course Name are required.</span>');
-                return;
-            }
-
-            $(this).prop('disabled', true).text('Saving…');
-
-            $.post(ajaxurl, {
-                action:         'ecco_training_add_record',
-                nonce:          nonce,
-                user_id:        userId,
-                course_name:    course,
-                date_completed: done,
-                date_expiry:    expiry
-            }, function(res) {
-                if (res.success) {
-                    location.reload();
-                } else {
-                    $msg.html('<span style="color:red;">' + res.data + '</span>');
-                    $('#ecco-add-submit').prop('disabled', false).text('Save Record');
-                }
-            });
-        });
 
         /* ================================================
            INLINE EDITING (HR)

@@ -50,6 +50,9 @@ require_once ECCO_PATH . 'includes/leave/leave-loader.php';
 
 /* --- Training Module --- */
 require_once ECCO_PATH . 'includes/training/training-loader.php';
+
+/* --- Courses Module (LMS + Certificates) --- */
+require_once ECCO_PATH . 'includes/courses/courses-loader.php';
 require_once ECCO_PATH . 'includes/leave/leave-approval-shortcode.php';
 require_once ECCO_PATH . 'includes/leave/leave-dashboard-shortcode.php';
 require_once ECCO_PATH . 'includes/leave/manager-resolver.php';
@@ -228,6 +231,10 @@ function ecco_intranet_activate() {
 
     if (function_exists('ecco_create_training_table')) {
         ecco_create_training_table();
+    }
+
+    if (function_exists('ecco_create_courses_tables')) {
+        ecco_create_courses_tables();
     }
 }
 
