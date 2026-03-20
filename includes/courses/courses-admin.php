@@ -8,9 +8,9 @@ if (!defined('ABSPATH')) exit;
 add_action('admin_menu', function () {
 
     add_submenu_page(
-        'ecco-training',
+        'ecco-intranet-hub',
         'Courses',
-        'Courses',
+        'Training: Courses',
         'manage_options',
         'ecco-courses',
         'ecco_courses_dispatch_page'

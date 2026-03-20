@@ -12,7 +12,8 @@ add_shortcode('ecco_training', 'ecco_training_shortcode');
 function ecco_training_shortcode($atts) {
 
     if (!is_user_logged_in()) {
-        return '<p>Please <a href="' . esc_url(wp_login_url(get_permalink())) . '">log in</a> to view your training certifications.</p>';
+        wp_redirect(home_url('/'));
+        exit;
     }
 
     global $wpdb;

@@ -7,45 +7,32 @@ if (!defined('ABSPATH')) exit;
 
 add_action('admin_menu', function () {
 
-    // Use 'read' so any logged-in WP user can see the menu item.
-    // Each page function then calls ecco_current_user_is_hr() to
-    // enforce the actual HR / admin permission gate.
-    $hr_cap    = 'read';        // visible to HR users (and admins)
-    $admin_cap = 'manage_options'; // admin-only sub-pages
+    $hr_cap    = 'read';
+    $admin_cap = 'manage_options';
 
-    add_menu_page(
+    // Training — submenu of the Ecco Intranet hub
+    add_submenu_page(
+        'ecco-intranet-hub',
         'Training Certifications',
         'Training',
-        $hr_cap,
-        'ecco-training',
-        'ecco_training_admin_page',
-        'dashicons-awards',
-        26
-    );
-
-    add_submenu_page(
-        'ecco-training',
-        'All Certifications',
-        'All Certifications',
         $hr_cap,
         'ecco-training',
         'ecco_training_admin_page'
     );
 
-    // HR Users and SP Diagnostics are admin-only config pages
     add_submenu_page(
-        'ecco-training',
-        'HR Users',
-        'HR Users',
+        'ecco-intranet-hub',
+        'Training: HR Users',
+        'Training: HR Users',
         $admin_cap,
         'ecco-training-hr-users',
         'ecco_training_hr_users_page'
     );
 
     add_submenu_page(
-        'ecco-training',
-        'SP Diagnostics',
-        'SP Diagnostics',
+        'ecco-intranet-hub',
+        'Training: SP Diagnostics',
+        'Training: SP Diagnostics',
         $admin_cap,
         'ecco-training-diagnostics',
         'ecco_training_diagnostics_page'
@@ -685,7 +672,7 @@ function ecco_training_diagnostics_page() {
             If <strong>training_certificates</strong> shows ❌ Not found, the SharePoint library name
             does not match <code>TrainingCertificates</code> (case-insensitive partial match).
             Copy the correct Drive ID from the table above and paste it into
-            <a href="<?php echo esc_url(admin_url('options-general.php?page=ecco-intranet')); ?>">
+            <a href="<?php echo esc_url(admin_url('admin.php?page=ecco-intranet')); ?>">
                 ECCO Intranet Settings → Training Drive ID
             </a>.
         </p>

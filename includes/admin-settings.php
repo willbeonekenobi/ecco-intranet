@@ -1,25 +1,57 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
+/* =========================================================
+   TOP-LEVEL HUB: ECCO INTRANET
+   Everything ECCO-related lives under this one menu item.
+   ========================================================= */
+
 add_action('admin_menu', function () {
-    add_options_page(
-        'ECCO Intranet Settings',
-        'ECCO Intranet',
+
+    // Top-level hub — visible to any logged-in WP user
+    // (individual submenus enforce their own capability checks)
+    add_menu_page(
+        'Ecco Intranet',
+        'Ecco Intranet',
+        'read',
+        'ecco-intranet-hub',
+        '__return_null',
+        'dashicons-building',
+        25
+    );
+
+    // General Settings
+    add_submenu_page(
+        'ecco-intranet-hub',
+        'General Settings — Ecco Intranet',
+        'General Settings',
         'manage_options',
         'ecco-intranet',
         'ecco_settings_page'
     );
-});
 
-add_action('admin_menu', function () {
+    // Leave: Public Holidays
     add_submenu_page(
-        'options-general.php',
-        'Public Holidays',
-        'Public Holidays',
+        'ecco-intranet-hub',
+        'Leave: Public Holidays',
+        'Leave: Public Holidays',
         'manage_options',
         'ecco-public-holidays',
         'ecco_public_holidays_page'
     );
+
+    // Leave: Self Managers
+    add_submenu_page(
+        'ecco-intranet-hub',
+        'Leave: Self Managers',
+        'Leave: Self Managers',
+        'manage_options',
+        'ecco-self-managers',
+        'ecco_self_managers_page'
+    );
+
+    // Remove the WP-auto-generated duplicate first child
+    remove_submenu_page('ecco-intranet-hub', 'ecco-intranet-hub');
 });
 
 function ecco_public_holidays_page() {
@@ -61,7 +93,7 @@ function ecco_public_holidays_page() {
             echo '<div class="updated"><p>Holiday removed.</p></div>';
 
             // Prevent resubmission on refresh
-            wp_redirect(admin_url('options-general.php?page=ecco-public-holidays'));
+            wp_redirect(admin_url('admin.php?page=ecco-public-holidays'));
             exit;
         } else {
             echo '<div class="error"><p>Security check failed.</p></div>';
@@ -112,7 +144,7 @@ function ecco_public_holidays_page() {
 <td>
 <?php
 $delete_url = wp_nonce_url(
-    admin_url('options-general.php?page=ecco-public-holidays&delete=' . $h->id),
+    admin_url('admin.php?page=ecco-public-holidays&delete=' . $h->id),
     'ecco_delete_holiday_' . $h->id
 );
 ?>
@@ -324,17 +356,6 @@ if ($raw):
 /* =========================================================
    SELF-MANAGER ADMIN PAGE
    ========================================================= */
-
-add_action('admin_menu', function () {
-    add_submenu_page(
-        'options-general.php',
-        'Leave Self-Managers',
-        'Leave Self-Managers',
-        'manage_options',
-        'ecco-self-managers',
-        'ecco_self_managers_page'
-    );
-});
 
 function ecco_self_managers_page() {
 

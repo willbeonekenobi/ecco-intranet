@@ -20,9 +20,8 @@ add_shortcode('ecco_courses', 'ecco_courses_shortcode');
 function ecco_courses_shortcode() {
 
     if (!is_user_logged_in()) {
-        return '<div class="ecco-courses-notice">
-                    <p>Please <a href="' . esc_url(wp_login_url(get_permalink())) . '">log in</a> to access courses.</p>
-                </div>';
+        wp_redirect(home_url('/'));
+        exit;
     }
 
     // Enqueue front-end assets

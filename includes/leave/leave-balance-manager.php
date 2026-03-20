@@ -147,14 +147,13 @@ add_action('admin_menu', function() {
         return;
     }
 
-    add_menu_page(
+    add_submenu_page(
+        'ecco-intranet-hub',
         'Leave Balances',
-        'Leave Balances',
+        'Leave: Balances',
         'read',
         'ecco-leave-balances',
-        'ecco_render_leave_balance_admin',
-        'dashicons-groups',
-        30
+        'ecco_render_leave_balance_admin'
     );
 });
 
