@@ -41,6 +41,10 @@ add_shortcode('ecco_library', function ($atts) {
             <button type="button" class="upload-btn button button-primary">
                 Upload
             </button>
+
+            <button type="button" class="create-folder-btn button">
+                Create Folder
+            </button>
         </div>
 
         <div class="doc-list"></div>

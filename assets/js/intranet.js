@@ -283,5 +283,39 @@ jQuery(document).ready(function ($) {
             startUpload(section, file, conflict);
         });
     });
+/* ---------------------------------------------------------
+ * CREATE FOLDER
+ * --------------------------------------------------------- */
 
+$(document).on('click', '.create-folder-btn', function () {
+
+    const section = $(this).closest('section');
+    const library = section.data('library');
+
+    const currentFolder =
+        (folderPaths[library] && folderPaths[library].length)
+            ? folderPaths[library][folderPaths[library].length - 1].id
+            : '';
+
+    const folderName = prompt('Enter new folder name:');
+
+    if (!folderName || !folderName.trim()) {
+        return;
+    }
+
+    $.post(ECCO.ajax, {
+        action: 'ecco_create_folder',
+        library,
+        folder: currentFolder,
+        folder_name: folderName.trim()
+    }, function (res) {
+
+        if (!res || !res.success) {
+            alert(res?.data || 'Failed to create folder');
+            return;
+        }
+
+        loadLibrary(section, currentFolder || null);
+    });
+});
 });

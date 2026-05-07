@@ -135,3 +135,49 @@ add_action('wp_ajax_ecco_file_exists', function () {
         'exists' => false,
     ]);
 });
+
+/**
+ * Create folder
+ */
+add_action('wp_ajax_ecco_create_folder', function () {
+
+    if (empty($_POST['library']) || empty($_POST['folder_name'])) {
+        wp_send_json_error('Missing parameters');
+    }
+
+    $library    = sanitize_text_field($_POST['library']);
+    $folder     = !empty($_POST['folder'])
+        ? sanitize_text_field($_POST['folder'])
+        : null;
+
+    $folderName = trim(wp_unslash($_POST['folder_name']));
+
+    if ($folderName === '') {
+        wp_send_json_error('Folder name cannot be empty');
+    }
+
+    $drives = ecco_get_drive_map_safe($library);
+
+    if (empty($drives[$library])) {
+        wp_send_json_error('Invalid library');
+    }
+
+    $endpoint = $folder
+        ? "drives/{$drives[$library]}/items/{$folder}/children"
+        : "drives/{$drives[$library]}/root/children";
+
+    $result = ecco_graph_post($endpoint, [
+        'name' => $folderName,
+        'folder' => (object) [],
+        '@microsoft.graph.conflictBehavior' => 'rename',
+    ]);
+
+    if (empty($result['id'])) {
+        wp_send_json_error('Failed to create folder');
+    }
+
+    wp_send_json_success([
+        'id' => $result['id'],
+        'name' => $result['name'],
+    ]);
+});
